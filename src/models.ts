@@ -7,6 +7,7 @@ import {
 } from 'firebase/ai';
 import {
   ORG_WORD,
+  chunkText,
   detectWithRegex,
   expandNameParts,
   redact,
@@ -232,6 +233,19 @@ value exactly as written. Do not repeat items from the list. Do not list
 organisations, job titles, dates or amounts. If nothing was missed, give an
 empty list.`;
 
+const env = (name: string, fallback: number): number => {
+  const raw = (import.meta.env as Record<string, string | undefined>)[name];
+  return raw === undefined || raw === '' ? fallback : Number(raw);
+};
+const WHOLE_DOC = ((import.meta.env.VITE_PLAN as string | undefined) ?? '').startsWith('doc');
+/** Characters per piece. A whole-document plan takes the document in one go. */
+const PIECE_CHARS = WHOLE_DOC ? Number.MAX_SAFE_INTEGER : env('VITE_PIECE', 4000);
+/** Unique items per label call in a whole-document plan. */
+const LABEL_BATCH = env('VITE_LABEL_N', 40);
+/** Characters of masked text per "missed" call in a whole-document plan. */
+const MISSED_PIECE = env('VITE_MISSED_PIECE', 12000);
+/** Marked items one call may be asked to label. */
+const MAX_ITEMS = env('VITE_MAX_ITEMS', 40);
 const MAX_MISSED = Number((import.meta.env.VITE_MAX_MISSED as string | undefined) ?? 4);
 
 const combinedSchema = (count: number) => {
@@ -254,6 +268,60 @@ const combinedSchema = (count: number) => {
   };
 };
 
+// Whole-document labelling. The marked items of the entire document are
+// collected first and each unique one is labelled once, shown with up to two
+// lines it appears on. A long record repeats the same names, so the cost
+// follows the number of different items, not the number of pages.
+const DOC_LABEL_SYSTEM = `You check words and numbers taken from a document after personal data was
+removed. Removed values appear as placeholders in square brackets, such as
+[PERSON_1]. You get a numbered list. Each item is followed by one or two
+lines of the document it appears on. Give every item exactly one label:
+PERSON: a human being's name or part of one (first name, surname, initial and
+  surname, nickname). Staff, relatives and anyone else who is named count.
+ADDRESS: part of where a private person lives: a house or building name, a
+  street, a flat.
+PERSONAL_NUMBER: a reference, account, policy, order, tracking, membership,
+  passport or customer number, a password, or a code that belongs to one person.
+ORGANISATION: a company, shop, clinic, school, council, charity, government
+  body, department, team, scheme, law, benefit, product or brand.
+PLACE: a town, city, region, country, ward or public building.
+OTHER: anything else, such as a heading, job title, medicine, day, month,
+  amount, course code or ordinary word.
+Judge each item by how it is used in its lines.`;
+
+// The second half of the whole-document scrub: a look over the masked text
+// for what the marks did not catch.
+const MISSED_SYSTEM = `You check a document after personal data was removed.
+Removed values appear as placeholders in square brackets, such as [PERSON_1].
+List personal data that is still readable: a person's name written in lower
+case, a home address without a house number, a username or a personal code.
+Copy each value exactly as written. Do not list organisations, job titles,
+medicines, dates or amounts, and do not list the items given under "Already
+checked". If nothing personal is left, give an empty list.`;
+
+const missedSchema = (max: number) => ({
+  type: 'object',
+  properties: { missed: { type: 'array', maxItems: max, items: { type: 'string', maxLength: 40 } } },
+  required: ['missed'],
+  additionalProperties: false,
+});
+
+/** Up to two lines an item appears on, from different places in the document. */
+function twoContexts(lines: string[], lower: string[], item: string): string[] {
+  const key = item.toLowerCase();
+  const first = lower.findIndex((l) => l.includes(key));
+  if (first < 0) return [];
+  let last = first;
+  for (let i = lower.length - 1; i > first; i--) {
+    if (lower[i].includes(key)) {
+      last = i;
+      break;
+    }
+  }
+  const clip = (i: number) => lines[i].trim().slice(0, 200);
+  return last === first ? [clip(first)] : [clip(first), clip(last)];
+}
+
 const LETTER_KIND: Record<string, string | undefined> = { P: 'PERSON', A: 'ADDRESS', N: 'ID_NUMBER' };
 
 /** The lines an item appears on, at most two, trimmed. */
@@ -271,6 +339,9 @@ function contextLines(lines: string[], item: string): string {
  *   one-lines    no first pass: patterns, then one label call on the lines
  *   one-json     no first pass: patterns, then one label call, word labels
  *   one-combined one call: word labels for the marks plus a short list of what the marks missed (default)
+ *   doc          whole document: label each unique mark once, then look for what the marks missed
+ *   doc-nomissed the same without the second half
+ *   doc-contexts diagnostic: label every item twice, once per context line, and record the differences
  */
 const PLAN = ((import.meta.env.VITE_PLAN as string | undefined) ?? 'one-combined') as
   | 'two'
@@ -279,7 +350,10 @@ const PLAN = ((import.meta.env.VITE_PLAN as string | undefined) ?? 'one-combined
   | 'one-letters'
   | 'one-lines'
   | 'one-json'
-  | 'one-combined';
+  | 'one-combined'
+  | 'doc'
+  | 'doc-nomissed'
+  | 'doc-contexts';
 
 /** Which second pass runs. Set VITE_PASS2 to compare them in the benchmark. */
 const PASS2 = ((import.meta.env.VITE_PASS2 as string | undefined) ?? 'label') as
@@ -326,6 +400,8 @@ export const TASKS = {
 export type Task = keyof typeof TASKS;
 
 export interface Models {
+  /** How much text the scrub wants in one go. Pass it to detect(). */
+  pieceChars: number;
   /** True when the last scrub skipped its second pass because this device is slow. */
   secondPassSkipped(): boolean;
   /** Loads the model into memory with a one-character call, so the first scrub does not wait for it. */
@@ -370,6 +446,8 @@ export function createModels(ai: AI): Models {
   const letterer = lister(LETTER_SYSTEM);
   const liner = lister(LINES_SYSTEM);
   const combiner = lister(COMBINED_SYSTEM);
+  const docLabeller = lister(DOC_LABEL_SYSTEM);
+  const misser = lister(MISSED_SYSTEM);
 
   const list = async (
     target: ReturnType<typeof lister>,
@@ -443,9 +521,97 @@ export function createModels(ai: AI): Models {
     return out;
   };
 
+  /** A plain string from the model's "missed" list, as an entity, or nothing if it is not worth hiding. */
+  const fromMissed = (value: unknown): RawEntity | undefined => {
+    if (typeof value !== 'string' || ORG_WORD.test(value)) return undefined;
+    // Money, dates and single common words are not what this list is for.
+    if (/[£$€%]/.test(value) || !/[\p{L}\p{N}]{3}/u.test(value)) return undefined;
+    return { kind: /\d/.test(value) ? 'ID_NUMBER' : 'PERSON', value };
+  };
+
+  /** Labels for a list of items, each shown with its lines. Keyed by item. */
+  const labelWithLines = async (items: string[], contexts: Map<string, string[]>, which = -1): Promise<string[]> => {
+    const listed = items
+      .map((c, i) => {
+        const lines = contexts.get(c) ?? [];
+        const shown = which < 0 ? lines : [lines[Math.min(which, lines.length - 1)]];
+        return `${i + 1}. ${c} | ${shown.join(' / ')}`;
+      })
+      .join('\n');
+    const labels = (await callJson(docLabeller, `Items:\n${listed}`, labelSchema(items.length))) as Record<string, string>;
+    return items.map((_, i) => labels[String(i + 1)] ?? 'OTHER');
+  };
+
+  /** The whole-document scrub. */
+  const scrubDocument = async (text: string): Promise<RawEntity[]> => {
+    const known = detectWithRegex(text);
+    known.push(...expandNameParts(known));
+    const masked = redact(text, known).redacted;
+    // Unique marked items, ignoring case.
+    const unique = new Map<string, string>();
+    for (const s of findSuspects(masked)) if (!unique.has(s.text.toLowerCase())) unique.set(s.text.toLowerCase(), s.text);
+    const items = [...unique.values()];
+    const lines = masked.split('\n');
+    const lower = lines.map((l) => l.toLowerCase());
+    const contexts = new Map(items.map((c) => [c, twoContexts(lines, lower, c)]));
+
+    const out: RawEntity[] = [];
+    const diffs: Array<{ item: string; a: string; b: string }> = [];
+    for (let at = 0; at < items.length; at += LABEL_BATCH) {
+      const batch = items.slice(at, at + LABEL_BATCH);
+      let labels: string[];
+      try {
+        if (PLAN === 'doc-contexts') {
+          const a = await labelWithLines(batch, contexts, 0);
+          const b = await labelWithLines(batch, contexts, 1);
+          batch.forEach((item, i) => {
+            if (a[i] !== b[i] && (contexts.get(item)?.length ?? 0) > 1) diffs.push({ item, a: a[i], b: b[i] });
+          });
+          labels = a;
+        } else {
+          labels = await labelWithLines(batch, contexts);
+        }
+      } catch (err) {
+        console.warn('Label call failed, retrying once', err);
+        labels = await labelWithLines(batch, contexts);
+      }
+      batch.forEach((value, i) => {
+        const kind = LABEL_KIND[labels[i] as (typeof LABELS)[number]];
+        if (kind && !ORG_WORD.test(value)) out.push({ kind, value });
+      });
+    }
+    if (PLAN === 'doc-contexts') {
+      const w = window as { __airlockLabelDiffs?: unknown[] };
+      (w.__airlockLabelDiffs ??= []).push(...diffs);
+    }
+    if (PLAN === 'doc-nomissed' || PLAN === 'doc-contexts') return out;
+
+    // What the marks did not catch, piece by piece over the masked text.
+    const after = redact(text, [...known, ...validateModelEntities(text, out)]).redacted;
+    const visible = items.filter((c) => !out.some((o) => o.value === c));
+    for (const piece of chunkText(after, MISSED_PIECE)) {
+      const here = piece.toLowerCase();
+      const checked = visible.filter((c) => here.includes(c.toLowerCase())).slice(0, 60);
+      try {
+        const answer = (await callJson(
+          misser,
+          `Document:\n\n${piece}\n\nAlready checked:\n${checked.join(', ') || '(none)'}`,
+          missedSchema(MAX_MISSED),
+        )) as { missed?: unknown[] };
+        for (const value of Array.isArray(answer.missed) ? answer.missed : []) {
+          const entity = fromMissed(value);
+          if (entity && !checked.includes(entity.value)) out.push(entity);
+        }
+      } catch (err) {
+        console.warn('Missed-list call failed, keeping the labels', err);
+      }
+    }
+    return out;
+  };
+
   /** One call, word labels. With `missed`, the model also lists what the marks did not catch. */
   const labelByWord = async (masked: string, missed: boolean): Promise<RawEntity[]> => {
-    const candidates = [...new Set(findSuspects(masked).map((s) => s.text))].slice(0, MAX_ENTITIES);
+    const candidates = [...new Set(findSuspects(masked).map((s) => s.text))].slice(0, MAX_ITEMS);
     if (!candidates.length && !missed) return [];
     const listed = candidates.map((c, i) => `${i + 1}. ${c}`).join('\n') || '(no items)';
     const input = `Document:\n\n${masked}\n\nItems:\n${listed}`;
@@ -458,10 +624,8 @@ export function createModels(ai: AI): Models {
       };
       labels = answer.labels ?? {};
       for (const value of Array.isArray(answer.missed) ? answer.missed : []) {
-        if (typeof value !== 'string' || ORG_WORD.test(value)) continue;
-        // Money, dates and single common words are not what this list is for.
-        if (/[£$€%]/.test(value) || !/[\p{L}\p{N}]{3}/u.test(value)) continue;
-        out.push({ kind: /\d/.test(value) ? 'ID_NUMBER' : 'PERSON', value });
+        const entity = fromMissed(value);
+        if (entity) out.push(entity);
       }
     } else {
       labels = (await callJson(labeller, input, labelSchema(candidates.length))) as Record<string, string>;
@@ -492,6 +656,7 @@ export function createModels(ai: AI): Models {
   });
 
   return {
+    pieceChars: PIECE_CHARS,
     secondPassSkipped: () => skippedSecondPass,
 
     async warmUp() {
@@ -508,6 +673,10 @@ export function createModels(ai: AI): Models {
     },
 
     async extract(chunk) {
+      if (WHOLE_DOC) {
+        skippedSecondPass = false;
+        return scrubDocument(chunk);
+      }
       if (PLAN === 'one-letters' || PLAN === 'one-lines') {
         // No first pass. The patterns hide what they can, code marks what is
         // left, and one call labels the marks. One retry.

@@ -26,6 +26,8 @@ export interface EvalReport {
   firebaseConfigured: boolean;
   onDevice: 'ready' | 'unavailable';
   onDeviceError?: string;
+  /** Items whose label changed with the line they were shown on. Diagnostic plans only. */
+  labelDiffs?: unknown;
   summary: Summary;
   verdict: ReturnType<typeof verdict>;
   docs: DocScore[];
@@ -144,7 +146,7 @@ async function run(): Promise<void> {
         : undefined;
     const started = performance.now();
     const callsBefore = onDeviceCalls();
-    const detection = await detect(fixture.text, counting);
+    const detection = await detect(fixture.text, counting, models?.pieceChars);
     const scored = scoreDoc(fixture, detection, Math.round(performance.now() - started), raw);
     scored.calls = onDeviceCalls() - callsBefore;
     docs.push(scored);
@@ -158,6 +160,7 @@ async function run(): Promise<void> {
     firebaseConfigured: models !== null,
     onDevice,
     onDeviceError,
+    labelDiffs: (window as { __airlockLabelDiffs?: unknown }).__airlockLabelDiffs,
     summary,
     verdict: verdict(summary),
     docs,

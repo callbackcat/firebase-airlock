@@ -145,7 +145,7 @@ async function scrub(): Promise<void> {
     const extract = state.onDevice === 'ready' ? state.models?.extract : undefined;
     let modelError: string | undefined;
     if (extract) {
-      const result = await detect(text, extract);
+      const result = await detect(text, extract, state.models?.pieceChars);
       modelError = result.modelError;
       if (result.modelUsed) {
         // Keep anything hidden by hand while the model was running.

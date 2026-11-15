@@ -311,7 +311,7 @@ export interface Detection {
   modelError?: string;
 }
 
-export async function detect(text: string, extract?: Extractor): Promise<Detection> {
+export async function detect(text: string, extract?: Extractor, pieceChars = 4000): Promise<Detection> {
   const regex = detectWithRegex(text);
   const withDerived = (found: Entity[]): Entity[] => {
     const parts = expandNameParts(found);
@@ -320,7 +320,7 @@ export async function detect(text: string, extract?: Extractor): Promise<Detecti
   if (!extract) return { entities: withDerived(regex), modelUsed: false };
   try {
     const entities = [...regex];
-    for (const chunk of chunkText(text)) {
+    for (const chunk of chunkText(text, pieceChars)) {
       entities.push(...validateModelEntities(text, await extract(chunk)));
     }
     return { entities: withDerived(entities), modelUsed: true };
