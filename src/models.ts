@@ -188,6 +188,11 @@ const LABEL_KIND: Partial<Record<(typeof ALL_LABELS)[number], string>> = {
   PERSONAL: 'PERSON',
 };
 
+/** The labels in order, as words separated by commas. About a third of the characters of the JSON object. */
+const csvLabels = (count: number): string => `(?:${LABELS.join('|')})(?:,(?:${LABELS.join('|')})){${Math.max(0, count - 1)}}`;
+const CSV_NOTE = 'Answer format: the labels in the order of the list, separated by commas, on one line.';
+const CSV_MISSED_NOTE = `${CSV_NOTE} Then a second line that starts "MISSED: " followed by the missed values separated by " | ", or NONE.`;
+
 /** What to hide an item as, given its label, or nothing when it stays. */
 function kindFor(label: string | undefined, value: string, text: string): string | undefined {
   let kind = LABEL_KIND[label as (typeof ALL_LABELS)[number]];
@@ -523,7 +528,8 @@ export function createModels(ai: AI): Models {
     const abort = new AbortController();
     target.promptOptions.signal = abort.signal;
     target.promptOptions.responseConstraint = constraint;
-    target.promptOptions.omitResponseConstraintInput = constraint instanceof RegExp;
+    // Round 1: leaving the constraint out of the input changes what the model finds. Keep it in.
+    target.promptOptions.omitResponseConstraintInput = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const limitMs = timeLimit();
     const started = performance.now();
@@ -582,6 +588,11 @@ export function createModels(ai: AI): Models {
         return `${i + 1}. ${c} | ${shown.join(' / ')}`;
       })
       .join('\n');
+    if (on('csv')) {
+      const answer = String(await callJson(docLabeller, `Items:\n${listed}\n\n${CSV_NOTE}`, new RegExp(`^${csvLabels(items.length)}$`)));
+      const words = answer.trim().split(',');
+      return items.map((_, i) => words[i] ?? 'OTHER');
+    }
     const labels = (await callJson(docLabeller, `Items:\n${listed}`, labelSchema(items.length))) as Record<string, string>;
     return items.map((_, i) => labels[String(i + 1)] ?? 'OTHER');
   };
@@ -679,7 +690,22 @@ export function createModels(ai: AI): Models {
     const input = `Document:\n\n${masked}\n\nItems:\n${listed}`;
     const out: RawEntity[] = [];
     let labels: Record<string, string>;
-    if (missed) {
+    if (missed && on('csv')) {
+      const head = candidates.length ? `${csvLabels(candidates.length)}\\n` : '';
+      const answer = String(
+        await callJson(
+          combiner,
+          `${input}\n\n${CSV_MISSED_NOTE}`,
+          new RegExp(`^${head}MISSED: (?:NONE|[^\\n|]{2,40}(?: \\| [^\\n|]{2,40}){0,${Math.max(0, MAX_MISSED - 1)}})$`),
+        ),
+      );
+      const [first, second = ''] = candidates.length ? answer.split('\n') : ['', answer];
+      labels = Object.fromEntries(first.split(',').map((w, i) => [String(i + 1), w]));
+      for (const value of second.replace(/^MISSED: /, '').split(' | ')) {
+        const entity = value === 'NONE' ? undefined : fromMissed(value.trim());
+        if (entity && !(on('m2') && notAName(masked, entity.value))) out.push(entity);
+      }
+    } else if (missed) {
       const answer = (await callJson(combiner, input, combinedSchema(candidates.length))) as {
         labels?: Record<string, string>;
         missed?: string[];
