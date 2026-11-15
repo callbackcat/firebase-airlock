@@ -27,6 +27,10 @@ export interface Fixture {
   keep: string[];
   /** The useful facts that are medical terms. Counted on their own. */
   medical?: string[];
+  /** The medical terms whose loss would change what the document means. */
+  medicalHigh?: string[];
+  /** Quasi-identifiers: towns, employers, occupations, other dates. Counted, not required to be hidden. */
+  quasi?: string[];
 }
 
 const g = (kind: EntityKind, value: string, who: 'subject' | 'other' = 'subject'): Gold => ({

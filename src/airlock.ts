@@ -20,7 +20,8 @@ export const ENTITY_KINDS = [
 ] as const;
 
 export type EntityKind = (typeof ENTITY_KINDS)[number];
-export type EntitySource = 'regex' | 'model' | 'manual';
+/** 'mark': hidden because the marker underlined it, not because a pattern or the model said so. */
+export type EntitySource = 'mark' | 'regex' | 'model' | 'manual';
 
 export interface Entity {
   kind: EntityKind;
@@ -394,7 +395,7 @@ function matcher(value: string, flags = 'iu'): RegExp {
   );
 }
 
-const SOURCE_RANK: Record<EntitySource, number> = { manual: 0, regex: 1, model: 2 };
+const SOURCE_RANK: Record<EntitySource, number> = { manual: 0, regex: 1, model: 2, mark: 3 };
 
 export function redact(text: string, entities: Entity[]): Redaction {
   // One entry per distinct value. Manual beats regex beats model on kind.

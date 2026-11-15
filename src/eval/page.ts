@@ -1,4 +1,5 @@
-import { detect, type Extractor } from '../airlock';
+import { detect, type Detection, type Extractor } from '../airlock';
+import { applyUnhide, hideFirst } from '../hidefirst';
 import { initFirebase } from '../firebase';
 import { createModels, onDeviceCalls, type Models } from '../models';
 import { FIXTURES as MAIN_SET } from './fixtures';
@@ -146,8 +147,25 @@ async function run(): Promise<void> {
         : undefined;
     const started = performance.now();
     const callsBefore = onDeviceCalls();
-    const detection = await detect(fixture.text, counting, models?.pieceChars);
+    let detection: Detection;
+    let safeMs: number | undefined;
+    const arm = models?.arm ?? 'a0';
+    if (arm === 'a0') {
+      detection = await detect(fixture.text, counting, models?.pieceChars);
+    } else {
+      // Hide first: safe as soon as the patterns and the marker have run.
+      const first = hideFirst(fixture.text, arm !== 'a1');
+      safeMs = Math.round(performance.now() - started);
+      let entities = first.entities;
+      if ((arm === 'a3' || arm === 'a4') && onDevice === 'ready' && models) {
+        const result = await models.unhide(fixture.text, first.marks);
+        raw += result.restore.length;
+        entities = applyUnhide(fixture.text, first, result);
+      }
+      detection = { entities, modelUsed: true };
+    }
     const scored = scoreDoc(fixture, detection, Math.round(performance.now() - started), raw);
+    scored.safeMs = safeMs;
     scored.calls = onDeviceCalls() - callsBefore;
     docs.push(scored);
   }

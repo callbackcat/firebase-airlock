@@ -25,7 +25,15 @@ export interface DocScore {
   modelSpansRaw: number;
   modelSpansUsed: number;
   items: ItemScore[];
-  keep: Array<{ value: string; kept: boolean; medical: boolean }>;
+  keep: Array<{ value: string; kept: boolean; medical: boolean; high: boolean }>;
+  /** Every value that was hidden, and whether it was personal. For precision. */
+  hiddenValues: Array<{ value: string; personal: boolean; quasi: boolean }>;
+  /** Quasi-identifiers and whether each is still readable. */
+  quasi: Array<{ value: string; readable: boolean }>;
+  /** Characters in the document. */
+  chars: number;
+  /** Milliseconds until the text was safe to send. Equal to `ms` unless the scrub hides first. */
+  safeMs?: number;
   /** On-device calls made for this letter. */
   calls?: number;
   /** How many spans the review step marks in the outgoing text. */
@@ -65,10 +73,36 @@ export function scoreDoc(
       value,
       kept: !hidden(full, value),
       medical: fixture.medical ? fixture.medical.includes(value) : MEDICAL_KEEP.has(value),
+      high: fixture.medicalHigh?.includes(value) ?? false,
     })),
+    hiddenValues: hiddenValues(fixture, detection),
+    quasi: (fixture.quasi ?? []).map((value) => ({ value, readable: !hidden(full, value) })),
+    chars: fixture.text.length,
     suspects: suspects.length,
     words: full.split(/\s+/).filter(Boolean).length,
   };
+}
+
+/**
+ * What was hidden, value by value. A hidden value counts as personal when it
+ * overlaps a labelled detail in either direction ("Mrs Eleanor Whitfield"
+ * covers "Whitfield"), and as a quasi-identifier when it overlaps one of those.
+ */
+function hiddenValues(fixture: Fixture, detection: Detection): DocScore['hiddenValues'] {
+  const lower = fixture.text.toLowerCase();
+  const seen = new Set<string>();
+  const out: DocScore['hiddenValues'] = [];
+  const overlaps = (a: string, list: string[]) => list.some((b) => a.includes(b) || b.includes(a));
+  const gold = fixture.gold.map((g) => g.value.toLowerCase());
+  const quasi = (fixture.quasi ?? []).map((q) => q.toLowerCase());
+  for (const e of detection.entities) {
+    const key = e.value.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!key || seen.has(key) || !lower.replace(/\s+/g, ' ').includes(key)) continue;
+    seen.add(key);
+    const personal = overlaps(key, gold);
+    out.push({ value: e.value, personal, quasi: !personal && overlaps(key, quasi) });
+  }
+  return out;
 }
 
 /** True when every place `value` is still readable sits inside a marked span. */

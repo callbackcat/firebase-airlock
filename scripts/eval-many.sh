@@ -4,4 +4,4 @@ N=${RUNS:-3}
 for i in $(seq 1 "$N"); do
   npm run eval 2>&1 | grep -E "FAIL:|PASS:|MARGINAL:|NO-MODEL|Harness|Error|pass failed" | cut -c1-160
 done
-node scripts/summarise-runs.mjs "$N"
+node scripts/summarise-runs.mjs "$N" ${SUMMARY_ARGS:-}
