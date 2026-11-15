@@ -6,6 +6,7 @@ import { HOLDOUT } from './holdout';
 import { HOLDOUT2 } from './holdout2';
 import { HOLDOUT3 } from './holdout3';
 import { HOLDOUT4 } from './holdout4';
+import { HOLDOUT5 } from './holdout5';
 import { scoreDoc, summarise, verdict, type DocScore, type Summary } from './score';
 
 /**
@@ -35,7 +36,7 @@ declare global {
 }
 
 // ?set=holdout runs the letters that were never used for tuning.
-const SETS: Record<string, typeof MAIN_SET> = { holdout: HOLDOUT, holdout2: HOLDOUT2, holdout3: HOLDOUT3, holdout4: HOLDOUT4 };
+const SETS: Record<string, typeof MAIN_SET> = { holdout: HOLDOUT, holdout2: HOLDOUT2, holdout3: HOLDOUT3, holdout4: HOLDOUT4, holdout5: HOLDOUT5 };
 const FIXTURES = SETS[new URLSearchParams(location.search).get('set') ?? ''] ?? MAIN_SET;
 
 const $ = (id: string) => document.getElementById(id)!;

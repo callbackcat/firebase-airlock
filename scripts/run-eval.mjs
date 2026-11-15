@@ -9,7 +9,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { promptApiState, ROOT, startChrome, startDevServer } from './chrome.mjs';
 
-const SET = /^holdout[234]?$/.test(process.env.EVAL_SET ?? '') ? `?set=${process.env.EVAL_SET}` : '';
+const SET = /^holdout[2345]?$/.test(process.env.EVAL_SET ?? '') ? `?set=${process.env.EVAL_SET}` : '';
 const TIMEOUT_MIN = Number(process.env.EVAL_TIMEOUT_MIN ?? 45);
 const pct = (n) => (n === null || n === undefined ? 'n/a' : `${(n * 100).toFixed(1)}%`);
 

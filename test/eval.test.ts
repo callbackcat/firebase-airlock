@@ -5,9 +5,10 @@ import { HOLDOUT } from '../src/eval/holdout';
 import { HOLDOUT2 } from '../src/eval/holdout2';
 import { HOLDOUT3 } from '../src/eval/holdout3';
 import { HOLDOUT4 } from '../src/eval/holdout4';
+import { HOLDOUT5 } from '../src/eval/holdout5';
 import { scoreDoc, summarise, verdict } from '../src/eval/score';
 
-const ALL = [...FIXTURES, ...HOLDOUT, ...HOLDOUT2, ...HOLDOUT3, ...HOLDOUT4];
+const ALL = [...FIXTURES, ...HOLDOUT, ...HOLDOUT2, ...HOLDOUT3, ...HOLDOUT4, ...HOLDOUT5];
 
 describe('fixtures', () => {
   it('has unique ids', () => {
