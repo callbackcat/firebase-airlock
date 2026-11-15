@@ -2,7 +2,7 @@ import { detect, type Detection, type Extractor } from '../airlock';
 import { applyUnhide, hideFirst } from '../hidefirst';
 import { initFirebase } from '../firebase';
 import { createModels, onDeviceCalls, type Models } from '../models';
-import { FIXTURES as MAIN_SET } from './fixtures';
+import { FIXTURES as MAIN_SET, type Fixture } from './fixtures';
 import { HOLDOUT } from './holdout';
 import { HOLDOUT2 } from './holdout2';
 import { HOLDOUT3 } from './holdout3';
@@ -40,9 +40,34 @@ declare global {
   }
 }
 
-// ?set=holdout runs the letters that were never used for tuning.
-const SETS: Record<string, typeof MAIN_SET> = { holdout: HOLDOUT, holdout2: HOLDOUT2, holdout3: HOLDOUT3, holdout4: HOLDOUT4, holdout5: HOLDOUT5, holdout6: HOLDOUT6, 'long-dev': LONG_DEV, 'long-clean': LONG_CLEAN };
-const FIXTURES = SETS[new URLSearchParams(location.search).get('set') ?? ''] ?? MAIN_SET;
+// ?set=NAME picks the letters. Sets that live in the repo are imported; the
+// outside sets are read at run time from the git-ignored outside-data/ folder.
+const DEV_ALL = [...MAIN_SET, ...HOLDOUT, ...HOLDOUT2, ...HOLDOUT3, ...HOLDOUT4, ...HOLDOUT5, ...HOLDOUT6];
+const SETS: Record<string, Fixture[]> = {
+  holdout: HOLDOUT,
+  holdout2: HOLDOUT2,
+  holdout3: HOLDOUT3,
+  holdout4: HOLDOUT4,
+  holdout5: HOLDOUT5,
+  holdout6: HOLDOUT6,
+  'dev-all': DEV_ALL,
+  'long-dev': LONG_DEV,
+  'long-clean': LONG_CLEAN,
+};
+const LAZY: Record<string, () => Promise<Fixture[]>> = {
+  'final-set': async () => (await import('./final-set')).FINAL_SET,
+  'stress-ambiguous': async () => (await import('./stress')).STRESS_AMBIGUOUS,
+  'stress-medical': async () => (await import('./stress')).STRESS_MEDICAL,
+  'stress-base': async () => (await import('./stress')).STRESS_BASE,
+  'stress-lower': async () => (await import('./stress')).STRESS_LOWER,
+  'stress-upper': async () => (await import('./stress')).STRESS_UPPER,
+  'stress-instructions': async () => (await import('./stress')).STRESS_INSTRUCTIONS,
+  'stress-messy': async () => (await import('./stress')).STRESS_MESSY,
+  'outside-dev': async () => (await fetch('/outside-data/outside-dev.json')).json() as Promise<Fixture[]>,
+  'outside-final': async () => (await fetch('/outside-data/outside-final.json')).json() as Promise<Fixture[]>,
+};
+const SET_NAME = new URLSearchParams(location.search).get('set') ?? '';
+const loadFixtures = async (): Promise<Fixture[]> => (LAZY[SET_NAME] ? LAZY[SET_NAME]() : (SETS[SET_NAME] ?? MAIN_SET));
 
 const $ = (id: string) => document.getElementById(id)!;
 const runBtn = $('run') as HTMLButtonElement;
@@ -134,6 +159,7 @@ async function run(): Promise<void> {
   }
 
   const docs: DocScore[] = [];
+  const FIXTURES = await loadFixtures();
   for (const [i, fixture] of FIXTURES.entries()) {
     progress.textContent = `Letter ${i + 1} of ${FIXTURES.length}: ${fixture.title}`;
     let raw = 0;

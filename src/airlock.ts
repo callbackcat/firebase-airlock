@@ -475,6 +475,48 @@ export function splitByPlaceholders(text: string): Segment[] {
 }
 
 /** Put the real values back. Placeholders the vault does not know are left as-is. */
+export interface Restored {
+  text: string;
+  /** Placeholders that came back exactly as issued. */
+  exact: number;
+  /** Placeholders that came back changed (other brackets, case, spaces, a possessive inside) and were still matched. */
+  altered: number;
+  /** Placeholders in the answer that were never issued. Shown as they are, never guessed. */
+  invented: string[];
+  /** Issued placeholders that do not appear in the answer at all. */
+  unused: number;
+}
+
+// A cloud model sometimes changes a placeholder on the way back: "[Person 1]",
+// "(PERSON_1)", "[PERSON_1's]", "PERSON_1". This matches those forms too.
+const LOOSE_PLACEHOLDER =
+  /[\[({<]\s*([A-Za-z]+(?:[ _-][A-Za-z]+)*)[ _-]?(\d+)\s*(['’]s)?\s*[\])}>]|(?<![\p{L}\p{N}_\[])([A-Z]+(?:_[A-Z]+)*)_(\d+)(?![\p{L}\p{N}_\]])/gu;
+
+/**
+ * Puts real values back into an answer, tolerating the ways a model alters a
+ * placeholder, and reports what happened to each.
+ */
+export function restore(text: string, vault: Record<string, string>): Restored {
+  const used = new Set<string>();
+  const invented: string[] = [];
+  let exact = 0;
+  let altered = 0;
+  const out = text.replace(LOOSE_PLACEHOLDER, (whole, kind: string | undefined, n: string | undefined, poss: string | undefined, bareKind: string | undefined, bareN: string | undefined) => {
+    const key = `[${(kind ?? bareKind ?? '').toUpperCase().replace(/[ -]/g, '_')}_${n ?? bareN}]`;
+    const value = vault[key];
+    if (value === undefined) {
+      // Only something shaped like one of ours counts as invented.
+      if (/^\[[A-Z]+(?:_[A-Z]+)*_\d+\]$/.test(whole)) invented.push(whole);
+      return whole;
+    }
+    used.add(key);
+    if (whole === key) exact++;
+    else altered++;
+    return value + (poss ?? '');
+  });
+  return { text: out, exact, altered, invented, unused: Object.keys(vault).filter((k) => !used.has(k)).length };
+}
+
 export function rehydrate(text: string, vault: Record<string, string>): string {
   return splitByPlaceholders(text)
     .map((s) => (s.placeholder && vault[s.placeholder] !== undefined ? vault[s.placeholder] : s.text))

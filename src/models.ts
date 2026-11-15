@@ -503,6 +503,20 @@ the real value it stands for. When you mention one, write it exactly as given,
 brackets included. Never guess or ask what is behind a placeholder.
 Be concrete and brief. Plain text, no markdown.`;
 
+// The same instruction, said more firmly. Compared in the answer-quality test.
+const CLOUD_SYSTEM_STRICT = `You help people deal with letters and paperwork. This is ordinary help with
+a letter the user received: explain it, say what to do, or draft a reply.
+Before the document reached you, personal details were replaced with
+placeholders such as [PERSON_1], [ADDRESS_1] or [ID_NUMBER_2]. Each
+placeholder stands for a real value that the user's device will put back.
+Rules for placeholders:
+- Treat each one as the real name, address or number it stands for.
+- When you mention one, copy it exactly: same capitals, same underscore, same
+  number, square brackets included. Do not add words inside the brackets.
+- Never invent a placeholder that is not in the document, and never guess or
+  ask what is behind one.
+Answer the request fully. Be concrete and brief. Plain text, no markdown.`;
+
 export const TASKS = {
   explain: 'Explain in plain English what this letter says and what it means for the recipient.',
   actions: 'List what the recipient needs to do, in order, with any deadlines and what happens if they miss them.',
@@ -530,7 +544,11 @@ export interface Models {
   prepareOnDevice(onProgress?: (fraction: number) => void): Promise<void>;
   extract: Extractor;
   transcribe(image: File): Promise<string>;
-  ask(task: Task, redacted: string): Promise<{ text: string; source: string }>;
+  ask(task: Task, redacted: string, strict?: boolean): Promise<{ text: string; source: string }>;
+  /** A plain cloud call with no system instruction. For test tooling: judging answers, guessing attributes. */
+  cloudPlain(prompt: string): Promise<string>;
+  /** Cloud calls made since the page loaded. */
+  cloudCalls(): number;
 }
 
 function assertOnDevice(source: string | undefined): void {
@@ -835,8 +853,30 @@ export function createModels(ai: AI): Models {
     },
   });
 
+  const cloudStrict: GenerativeModel = getGenerativeModel(ai, {
+    mode: InferenceMode.ONLY_IN_CLOUD,
+    inCloudParams: {
+      model: (import.meta.env.VITE_CLOUD_MODEL as string | undefined) ?? 'gemini-3.5-flash-lite',
+      systemInstruction: CLOUD_SYSTEM_STRICT,
+    },
+  });
+  const cloudBare: GenerativeModel = getGenerativeModel(ai, {
+    mode: InferenceMode.ONLY_IN_CLOUD,
+    inCloudParams: { model: (import.meta.env.VITE_CLOUD_MODEL as string | undefined) ?? 'gemini-3.5-flash-lite' },
+  });
+  let cloudCount = 0;
+
   return {
     arm: ARM,
+
+    cloudCalls: () => cloudCount,
+
+    async cloudPlain(prompt) {
+      cloudCount++;
+      const result = await cloudBare.generateContent(prompt);
+      return result.response.text();
+    },
+
 
     async unhide(text, marks) {
       const known = detectWithRegex(text);
@@ -1024,8 +1064,9 @@ export function createModels(ai: AI): Models {
       return result.response.text();
     },
 
-    async ask(task, redacted) {
-      const result = await cloud.generateContent(`${TASKS[task]}\n\nDocument:\n\n${redacted}`);
+    async ask(task, redacted, strict = false) {
+      cloudCount++;
+      const result = await (strict ? cloudStrict : cloud).generateContent(`${TASKS[task]}\n\nDocument:\n\n${redacted}`);
       return {
         text: result.response.text(),
         source: result.response.inferenceSource ?? 'unknown',
