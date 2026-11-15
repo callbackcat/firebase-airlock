@@ -45,6 +45,12 @@ const state = {
   patternMs: 0,
   /** True while the on-device model is still reading a letter already on screen. */
   pending: false,
+  /**
+   * True when the warm-up call showed that a scrub will take long on this
+   * machine. The person may then send after checking the text themselves,
+   * without waiting for the model.
+   */
+  slow: false,
   redaction: null as Redaction | null,
 };
 
@@ -145,7 +151,13 @@ async function scrub(): Promise<void> {
     const extract = state.onDevice === 'ready' ? state.models?.extract : undefined;
     let modelError: string | undefined;
     if (extract) {
-      const result = await detect(text, extract, state.models?.pieceChars);
+      // Results are shown as they arrive, in reading order.
+      const result = await detect(text, extract, state.models?.pieceChars, (entities) => {
+        if (input.value !== text) return;
+        const manual = state.all.filter((e) => e.source === 'manual');
+        state.all = [...entities, ...manual];
+        recompute();
+      });
       modelError = result.modelError;
       if (result.modelUsed) {
         // Keep anything hidden by hand while the model was running.
@@ -180,13 +192,24 @@ async function scrub(): Promise<void> {
 // The first on-device call after the page opens is slow, because Chrome has
 // to load the model into memory. Do that as soon as the person touches the
 // page, so the wait is over before they click Scrub.
+/** One-page scrub time as a multiple of the warm-up call, measured on GPU and CPU. */
+const SCRUB_PER_CALL = 1.7;
+/** A predicted scrub longer than this starts in review mode. */
+const SLOW_SCRUB_MS = 8000;
 let warmed = false;
 function warmUp(): void {
   if (warmed) return;
   warmed = true;
   void (async () => {
     await ensureOnDevice();
-    if (state.onDevice === 'ready') await state.models?.warmUp();
+    if (state.onDevice !== 'ready' || !state.models) return;
+    const callMs = await state.models.warmUp();
+    // A one-page scrub takes about 1.7 times the fixed cost of a call.
+    state.slow = callMs * SCRUB_PER_CALL > SLOW_SCRUB_MS;
+    if (state.pending) {
+      renderAck();
+      updateSend();
+    }
   })();
 }
 
@@ -321,8 +344,25 @@ function renderEntities(): void {
 
 function renderAck(): void {
   const host = $('ack');
-  if (state.modelUsed || state.pending) {
+  if (state.modelUsed || (state.pending && !state.slow)) {
     host.replaceChildren();
+    return;
+  }
+  if (state.pending) {
+    // Review mode: the model is slow here, so the person may go ahead on their own check.
+    const box = el('input', { type: 'checkbox', checked: state.acknowledged });
+    box.onchange = () => {
+      state.acknowledged = box.checked;
+      updateSend();
+    };
+    host.replaceChildren(
+      el('p', {
+        className: 'note warn',
+        textContent:
+          'This device is slow, so the on-device model is still working. The fixed patterns are applied and the underlined text shows what may still be personal. More will be hidden as the model gets to it. You can wait, or check the text yourself and send now.',
+      }),
+      el('label', { className: 'ack' }, [box, 'I have checked the text above myself.']),
+    );
     return;
   }
   const box = el('input', { type: 'checkbox', checked: state.acknowledged });
@@ -345,7 +385,8 @@ function updateSend(): void {
   let reason = '';
   if (!r) reason = '';
   else if (!state.models) reason = 'Add a Firebase config to enable the cloud step (see README).';
-  else if (state.pending) reason = 'The on-device model is still reading. You can review what the patterns found.';
+  else if (state.pending && !state.slow) reason = 'The on-device model is still reading. You can review what the patterns found.';
+  else if (state.pending && !state.acknowledged) reason = 'The on-device model is still working. Wait, or confirm you have checked the text.';
   else if (!state.modelUsed && !state.acknowledged) reason = 'Confirm you have checked the text.';
   sendBtn.disabled = !r || reason !== '';
   sendNote.textContent = reason;

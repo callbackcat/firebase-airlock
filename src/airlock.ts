@@ -50,7 +50,8 @@ export interface RawEntity {
 }
 
 /** Runs one chunk of text through a model and returns the spans it found. */
-export type Extractor = (chunk: string) => Promise<RawEntity[]>;
+/** `partial` may be called with what has been found so far, in reading order. */
+export type Extractor = (chunk: string, partial?: (found: RawEntity[]) => void) => Promise<RawEntity[]>;
 
 // ---------------------------------------------------------------------------
 // 1. Deterministic layer: patterns a regex catches more reliably than a model
@@ -338,7 +339,13 @@ export interface Detection {
   modelError?: string;
 }
 
-export async function detect(text: string, extract?: Extractor, pieceChars = 4000): Promise<Detection> {
+export async function detect(
+  text: string,
+  extract?: Extractor,
+  pieceChars = 4000,
+  /** Called as results arrive, each time with everything found so far. */
+  onProgress?: (entities: Entity[]) => void,
+): Promise<Detection> {
   const regex = detectWithRegex(text);
   const withDerived = (found: Entity[]): Entity[] => {
     const parts = expandNameParts(found);
@@ -348,7 +355,12 @@ export async function detect(text: string, extract?: Extractor, pieceChars = 400
   try {
     const entities = [...regex];
     for (const chunk of chunkText(text, pieceChars)) {
-      entities.push(...validateModelEntities(text, await extract(chunk)));
+      const sofar = [...entities];
+      const partial = onProgress
+        ? (found: RawEntity[]) => onProgress(withDerived([...sofar, ...validateModelEntities(text, found)]))
+        : undefined;
+      entities.push(...validateModelEntities(text, await extract(chunk, partial)));
+      onProgress?.(withDerived(entities));
     }
     return { entities: withDerived(entities), modelUsed: true };
   } catch (err) {

@@ -453,8 +453,12 @@ export interface Models {
   pieceChars: number;
   /** True when the last scrub skipped its second pass because this device is slow. */
   secondPassSkipped(): boolean;
-  /** Loads the model into memory with a one-character call, so the first scrub does not wait for it. */
-  warmUp(): Promise<void>;
+  /**
+   * Loads the model into memory with a one-character call, so the first scrub
+   * does not wait for it. Then times a second such call and returns the
+   * milliseconds: the fixed cost of a call on this machine. 0 if it failed.
+   */
+  warmUp(): Promise<number>;
   /** Call from a click handler. Resolves when the on-device model is usable. */
   prepareOnDevice(onProgress?: (fraction: number) => void): Promise<void>;
   extract: Extractor;
@@ -598,7 +602,7 @@ export function createModels(ai: AI): Models {
   };
 
   /** The whole-document scrub. */
-  const scrubDocument = async (text: string): Promise<RawEntity[]> => {
+  const scrubDocument = async (text: string, partial?: (found: RawEntity[]) => void): Promise<RawEntity[]> => {
     const known = detectWithRegex(text);
     known.push(...expandNameParts(known));
     const masked = redact(text, known).redacted;
@@ -636,6 +640,8 @@ export function createModels(ai: AI): Models {
         if (kind) out.push({ kind, value });
         else if (nameLike(value)) doubtful.push(value);
       });
+      // Items are in reading order, so each batch fills in the next stretch of the document.
+      partial?.([...out]);
     }
     // A second vote on name-like items that were let through, in the reverse
     // order. Hidden if either vote says person.
@@ -767,10 +773,14 @@ export function createModels(ai: AI): Models {
 
     async warmUp() {
       try {
-        const result = await warm.generateContent('Hi');
-        assertOnDevice(result.response.inferenceSource);
+        const first = await warm.generateContent('Hi');
+        assertOnDevice(first.response.inferenceSource);
+        const started = performance.now();
+        await warm.generateContent('Hi');
+        return performance.now() - started;
       } catch (err) {
         console.warn('Warm-up call failed', err);
+        return 0;
       }
     },
 
@@ -778,10 +788,10 @@ export function createModels(ai: AI): Models {
       await scrub.model.initializeDeviceModel(onProgress);
     },
 
-    async extract(chunk) {
+    async extract(chunk, partial) {
       if (WHOLE_DOC) {
         skippedSecondPass = false;
-        return scrubDocument(chunk);
+        return scrubDocument(chunk, partial);
       }
       if (PLAN === 'one-letters' || PLAN === 'one-lines') {
         // No first pass. The patterns hide what they can, code marks what is
