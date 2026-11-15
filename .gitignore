@@ -1,4 +1,8 @@
 node_modules
 dist
-.env.local
 .env
+.env.*
+.chrome-profile
+eval-results
+*.log
+.DS_Store

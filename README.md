@@ -17,7 +17,9 @@ back on your device.
 Built on [Firebase AI Logic](https://firebase.google.com/docs/ai-logic/hybrid)
 hybrid inference for Web (Chrome).
 
-> Status: proof of concept. See [What is and is not tested](#what-is-and-is-not-tested).
+> Status: proof of concept. The pipeline and the test harness work. The
+> on-device model's accuracy has not been measured yet. See
+> [What is and is not tested](#what-is-and-is-not-tested).
 
 ## Why hybrid, and why both halves are needed
 
@@ -33,6 +35,9 @@ browser without the local model would silently send the raw document to the
 cloud, which is the one thing this app exists to prevent. When the local model
 is missing, Airlock drops to fixed patterns, says so, and makes you confirm
 before anything is sent.
+
+All model calls go through Firebase AI Logic. There is no other AI provider in
+this project.
 
 ## How it works
 
@@ -73,45 +78,62 @@ const restored = rehydrate(answer.response.text(), vault);
 
 ```bash
 npm install
-cp .env.example .env.local     # paste your Firebase web config
+cp env.example .env.local      # then fill it in; see docs/setup.md
 npm run dev
 ```
 
-1. Create a Firebase project and enable **AI Logic** with the Gemini Developer API.
-2. Register a web app and paste its config into `.env.local`.
-3. App Check is required by AI Logic. In dev, open the browser console, copy
-   the debug token it prints, and register it under App Check > Manage debug tokens.
-4. Use desktop Chrome with the built-in model enabled. The hackathon FAQ says to
-   turn on **Gemma 4 for Built-in AI** in `chrome://flags`; check the
-   [hybrid web guide](https://firebase.google.com/docs/ai-logic/hybrid/web/get-started)
-   for the current flags and Chrome version.
+`docs/setup.md` lists everything you need: a free Firebase project, an App
+Check debug token and a Chrome with the on-device model. Without a Firebase
+config the page still loads: pattern-only scrubbing works and the cloud step
+is switched off.
 
-Without a Firebase config the page still loads: pattern-only scrubbing works
-and the cloud step is switched off.
+## Test it
 
 ```bash
-npm test          # unit tests for the core
+npm test          # unit tests for the core and the benchmark scoring
 npm run build     # typecheck + production build
+npm run eval      # benchmark the scrub step in a real Chrome
+npm run e2e       # one full run, checked at the network level
 ```
+
+**`npm run eval`** opens `eval.html` in Chrome, runs 12 labelled fictional
+letters (85 labelled details) through the same scrub code the app uses, and
+reports what was still readable afterwards: by type, patterns alone against
+patterns plus the model, plus how many useful facts were hidden by mistake.
+
+**`npm run e2e`** drives the app once and checks nine things, including that
+the scrub works with the page offline, that no request leaves the machine
+while scrubbing, and that no hidden value appears in the body of the request
+that goes to the cloud.
+
+Both scripts start Chrome as a plain process with its own profile in
+`.chrome-profile/` and attach over the DevTools protocol. Options are
+documented at the top of `scripts/chrome.mjs`.
+
+`docs/claude-code-test-prompt.md` is a prompt that hands this whole test to
+Claude Code.
 
 ## What is and is not tested
 
 Tested:
 
-- Core logic: 11 unit tests, including the full pipeline on the sample letter
-  with a stand-in extractor.
+- Core logic and benchmark scoring: 27 unit tests.
 - Types: compiles against `firebase@13.3.0` (`InferenceMode`, `InferenceSource`,
   `onDeviceParams.promptOptions.responseConstraint`, `inCloudParams`).
-- UI: both paths driven in headless Chrome. Pattern-only with no Firebase
-  config, and the full three-step flow with the model module stubbed.
+- The app UI, the benchmark page and both scripts, in headless Chrome 153
+  without an on-device model: once with no Firebase config, once with the
+  model module replaced by a stub.
+- The pattern-only baseline: fixed patterns alone hide 29% of the subject
+  details in the benchmark, and no names or addresses. That is the gap the
+  on-device model has to close.
 
 Not tested yet:
 
 - Any real call to Gemini Nano or to the cloud through Firebase AI Logic.
-- How well the on-device model actually finds names and addresses. This is the
-  number that decides whether the product works. Measure recall on 20 to 30
-  varied letters before building further.
+- How well the on-device model finds names and addresses. This is the number
+  that decides whether the product works.
 - Reading a photographed letter on device.
+- App Check with a real provider on a hosted build.
 
 ## Limits, stated plainly
 
@@ -125,12 +147,13 @@ Not tested yet:
 
 ## Next
 
-- Recall benchmark for the scrub step, per entity type.
+- Measure the scrub step and tune it (`docs/claude-code-test-prompt.md`).
 - Chrome extension side panel ("send this page through Airlock").
 - Google Search grounding on the cloud step, so explanations cite real rules.
 - A `PREFER_ON_DEVICE` document-type classifier to pick the right prompt.
 - Remote Config for the cloud model name and prompts.
+- Hosted build with a production App Check provider.
 
 ## Licence
 
-[MIT](LICENSE). The sample letter is fictional.
+[MIT](LICENSE). Every letter in this repository is fictional.
