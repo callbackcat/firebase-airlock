@@ -40,7 +40,8 @@ export async function startDevServer() {
     root: ROOT,
     configFile: process.env.AIRLOCK_VITE_CONFIG || undefined,
     logLevel: 'warn',
-    server: { port: Number(process.env.PORT ?? 5173), strictPort: false },
+    // No hot reload: a file saved while a benchmark runs must not restart the page.
+    server: { port: Number(process.env.PORT ?? 5173), strictPort: false, hmr: false, watch: null },
   });
   await server.listen();
   const url = server.resolvedUrls?.local?.[0];
