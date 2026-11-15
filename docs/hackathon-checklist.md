@@ -16,7 +16,7 @@ Commits pushed after that are not evaluated.
 | A Gen AI app built with Firebase AI Logic | Done | `src/models.ts` |
 | AI Logic imported and called at runtime, not just named in the README | Done | `getGenerativeModel`, `generateContent` in `src/models.ts` |
 | All of the app's AI inference goes through Firebase AI Logic | Done | No other provider. Do not add OpenRouter, a direct Gemini API call or a raw Prompt API call to the app. |
-| At least one platform: Web (Chrome) with Gemini Nano 4 | Done in code, unverified at runtime | Needs a run on a real Chrome with the model |
+| At least one platform: Web (Chrome) with Gemini Nano 4 | Done | Ran on Chrome 157 with the on-device model, see `docs/benchmark.md` |
 | Both on-device and cloud inference (judges score hybrid use) | Done | Scrub is `ONLY_ON_DEVICE`, answer is `ONLY_IN_CLOUD`. The FAQ allows a mode per feature. |
 | App Check | Partly | Debug token works locally and is accepted in submissions. A hosted build needs a real provider. |
 | Public GitHub or GitLab repository | To do | Make it public before submitting |

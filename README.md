@@ -17,8 +17,9 @@ back on your device.
 Built on [Firebase AI Logic](https://firebase.google.com/docs/ai-logic/hybrid)
 hybrid inference for Web (Chrome).
 
-> Status: proof of concept. The pipeline and the test harness work. The
-> on-device model's accuracy has not been measured yet. See
+> Status: proof of concept. It runs end to end on a real on-device model and
+> hides about 86% of personal details on unseen letters, so the approval step
+> matters. See
 > [What is and is not tested](#what-is-and-is-not-tested).
 
 ## Why hybrid, and why both halves are needed
@@ -115,24 +116,25 @@ Claude Code.
 
 ## What is and is not tested
 
-Tested:
+Tested (details in [docs/benchmark.md](docs/benchmark.md)):
 
-- Core logic and benchmark scoring: 27 unit tests.
-- Types: compiles against `firebase@13.3.0` (`InferenceMode`, `InferenceSource`,
-  `onDeviceParams.promptOptions.responseConstraint`, `inCloudParams`).
-- The app UI, the benchmark page and both scripts, in headless Chrome 153
-  without an on-device model: once with no Firebase config, once with the
-  model module replaced by a stub.
-- The pattern-only baseline: fixed patterns alone hide 29% of the subject
-  details in the benchmark, and no names or addresses. That is the gap the
-  on-device model has to close.
+- Core logic and benchmark scoring: 41 unit tests.
+- The on-device model through Firebase AI Logic, on Chrome 157 on Windows 11:
+  the scrub ran on device, including with the page offline.
+- Scrub accuracy, three runs each. On the 12 letters used for tuning it hides
+  98.5% of the subject's details. On 8 new letters it had never seen it hides
+  86.4% (77.6% to 91.8%), keeping 99% of the useful facts. Fixed patterns
+  alone hide 29%.
+- One full run checked at the network level: nine checks passed, no request
+  left the machine during the scrub, and nothing Airlock hid appeared in the
+  cloud request. What the model missed in that run (a street address and a
+  doctor's name) was sent in clear.
 
 Not tested yet:
 
-- Any real call to Gemini Nano or to the cloud through Firebase AI Logic.
-- How well the on-device model finds names and addresses. This is the number
-  that decides whether the product works.
+- The scrub with the machine's network switched off entirely.
 - Reading a photographed letter on device.
+- Other machines, Chrome channels and languages.
 - App Check with a real provider on a hosted build.
 
 ## Limits, stated plainly
