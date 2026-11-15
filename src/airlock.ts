@@ -26,6 +26,8 @@ export interface Entity {
   kind: EntityKind;
   value: string;
   source: EntitySource;
+  /** True when this was worked out from another entity (a part of a full name). */
+  derived?: boolean;
 }
 
 export interface PlacedEntity extends Entity {
@@ -95,6 +97,17 @@ const DETECTORS: Detector[] = [
     kind: 'ID_NUMBER',
     pattern: /\b[A-CEGHJ-PR-TW-Z]{2} ?\d{2} ?\d{2} ?\d{2} ?[A-D]\b/g,
   },
+  {
+    // Anything introduced by a label: "Our ref: AB/123/C", "Policy number: X-9",
+    // "Employee number 0042". The value is capitals and digits and must hold a digit.
+    kind: 'ID_NUMBER',
+    pattern:
+      /\b(?:[Rr]ef(?:erence)?|REF(?:ERENCE)?|[Nn]umber|NUMBER|[Nn]o\.|NO\.|ID)(?:\s*:\s*|\s+)([A-Z0-9]+(?:[\/-][A-Z0-9]+)*(?: \d+[A-Z0-9]*)?)/g,
+    group: true,
+    accept: (v) => v.length >= 4 && /\d/.test(v),
+  },
+  // UK vehicle registration, current format.
+  { kind: 'OTHER', pattern: /\b[A-Z]{2}\d{2} ?[A-Z]{3}\b/g },
   {
     kind: 'PHONE',
     pattern: /(?:\+44 ?\d{2,4}|\(?0\d{2,4}\)?)[ -]?\d{3,4}[ -]?\d{3,4}\b/g,
@@ -172,6 +185,37 @@ export function validateModelEntities(text: string, raw: RawEntity[]): Entity[] 
   return out;
 }
 
+const TITLES = new Set([
+  'mr', 'mrs', 'ms', 'miss', 'mx', 'dr', 'prof', 'professor', 'sir', 'dame', 'lord', 'lady', 'rev', 'cllr',
+]);
+// A name part that is also an everyday capitalised word would hide useful facts.
+const NOT_A_NAME_PART = new Set([
+  'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october',
+  'november', 'december', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'and', 'the',
+]);
+
+/**
+ * A letter names someone in full once ("Mr Oluwaseun Adebayo") and by one part
+ * afterwards ("Dear Mr Adebayo", "Dear Oluwaseun"). The model usually returns
+ * only the full form, so add each part of a person's name as its own entity.
+ */
+export function expandNameParts(entities: Entity[]): Entity[] {
+  const out: Entity[] = [];
+  for (const e of entities) {
+    if (e.kind !== 'PERSON') continue;
+    for (const raw of e.value.split(/[\s,&]+/)) {
+      const part = raw.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '');
+      const key = part.toLowerCase();
+      if (part.length < 3 || !/^\p{Lu}/u.test(part)) continue;
+      if (TITLES.has(key) || NOT_A_NAME_PART.has(key)) continue;
+      if (normalise(part) === normalise(e.value)) continue;
+      out.push({ kind: 'PERSON', value: part, source: e.source, derived: true });
+    }
+  }
+  return out;
+}
+
 export interface Detection {
   entities: Entity[];
   /** False when no extractor was given or it failed: regex-only coverage. */
@@ -186,6 +230,7 @@ export async function detect(text: string, extract?: Extractor): Promise<Detecti
     for (const chunk of chunkText(text)) {
       entities.push(...validateModelEntities(text, await extract(chunk)));
     }
+    entities.push(...expandNameParts(entities));
     return { entities, modelUsed: true };
   } catch (err) {
     return {

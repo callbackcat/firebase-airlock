@@ -43,7 +43,7 @@ export function scoreDoc(
     modelError: detection.modelError,
     ms,
     modelSpansRaw,
-    modelSpansUsed: detection.entities.filter((e) => e.source === 'model').length,
+    modelSpansUsed: detection.entities.filter((e) => e.source === 'model' && !e.derived).length,
     items: fixture.gold.map((item) => ({
       ...item,
       hiddenByPatterns: hidden(patternsOnly, item.value),

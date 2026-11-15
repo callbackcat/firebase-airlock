@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  expandNameParts,
   chunkText,
   detect,
   detectWithRegex,
@@ -150,5 +151,46 @@ describe('whole pipeline on the sample letter', () => {
     const d = await detect(SAMPLE_LETTER, extract);
     const r = redact(SAMPLE_LETTER, d.entities);
     expect(findLeaks(r.redacted + ' PS from Eleanor Whitfield', r.vault)).toContain('Eleanor Whitfield');
+  });
+});
+
+describe('name parts', () => {
+  it('adds each part of a full name, without titles', () => {
+    const parts = expandNameParts([{ kind: 'PERSON', value: 'Dr Jane Okafor-Reid', source: 'model' }]);
+    expect(parts.map((p) => p.value)).toEqual(['Jane', 'Okafor-Reid']);
+  });
+
+  it('skips everyday words, initials and non-person entities', () => {
+    const parts = expandNameParts([
+      { kind: 'PERSON', value: 'May J. Hollis', source: 'model' },
+      { kind: 'ADDRESS', value: '5 Hollis Street', source: 'model' },
+    ]);
+    expect(parts.map((p) => p.value)).toEqual(['Hollis']);
+  });
+
+  it('hides a surname used on its own later in the letter', async () => {
+    const text = 'Mr Tomas Varga\n\nDear Mr Varga,\nYour appointment is on Tuesday.';
+    const found = await detect(text, async () => [{ kind: 'PERSON', value: 'Mr Tomas Varga' }]);
+    expect(redact(text, found.entities).redacted).not.toContain('Varga');
+  });
+});
+
+describe('labelled references', () => {
+  const values = (text: string) => detectWithRegex(text).map((e) => e.value);
+
+  it('finds reference numbers introduced by a label', () => {
+    expect(values('Our ref: QX/4410/BD')).toContain('QX/4410/BD');
+    expect(values('Policy number: ZT-70031-K')).toContain('ZT-70031-K');
+    expect(values('Staff number 007731 applies.')).toContain('007731');
+    expect(values('Your reference 90417 22086')).toContain('90417 22086');
+  });
+
+  it('leaves words, short numbers and amounts alone', () => {
+    expect(values('A number of people called about reference material.')).toEqual([]);
+    expect(values('See page number 12 and pay £164.00 within 7 days.')).toEqual([]);
+  });
+
+  it('finds a UK vehicle registration', () => {
+    expect(values('Vehicle: WP21 HGA was parked.')).toContain('WP21 HGA');
   });
 });

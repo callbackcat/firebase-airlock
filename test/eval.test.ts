@@ -51,9 +51,11 @@ describe('scoring', () => {
     expect(d.modelSpansRaw).toBe(3);
     expect(d.modelSpansUsed).toBe(2);
     expect(s.overRedacted).toEqual([{ doc: 'council-tax', value: 'Harrowden Borough Council' }]);
-    // "Dear Mr Adebayo" is a different span from "Mr Oluwaseun Adebayo", so the surname leaks.
-    expect(s.misses.map((m) => m.value)).toContain('Adebayo');
+    // "Dear Mr Adebayo" is a different span from "Mr Oluwaseun Adebayo"; name parts cover it.
+    expect(s.misses.map((m) => m.value)).not.toContain('Adebayo');
     expect(s.misses.map((m) => m.value)).not.toContain('Oluwaseun');
+    // The signing officer was never returned by the extractor, so she still leaks.
+    expect(s.misses.map((m) => m.value)).toContain('Ramanathan');
     expect(verdict(s).level).toBe('fail');
   });
 });
