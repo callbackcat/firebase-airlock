@@ -38,7 +38,11 @@ declare global {
   }
 }
 
-const REPEATS = Number(new URLSearchParams(location.search).get('n') ?? 5);
+const QUERY = new URLSearchParams(location.search);
+const REPEATS = Number(QUERY.get('n') ?? 5);
+/** base (round 1), ceiling, formats or idle. */
+const MODE = QUERY.get('mode') ?? 'base';
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const $ = (id: string) => document.getElementById(id)!;
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
 
@@ -136,6 +140,56 @@ async function run(): Promise<void> {
     report.rows.push({ name: 'cold', what: 'Very first call after the page opened', inputChars: 2, outputChars: [cold.chars], firstMs: [cold.first], totalMs: [cold.total] });
 
     const one = /^[A-Z]$/;
+    if (MODE === 'ceiling') {
+      // How much can one call read? One character out, growing input.
+      let all = '';
+      while (all.length < 33000) for (const f of FIXTURES) all += `${f.text}
+
+`;
+      for (const size of [4000, 8000, 16000, 24000, 32000]) {
+        report.rows.push(await measure(ai, `in-${size}`, `${size} characters in, one character out`, `Document:
+
+${all.slice(0, size)}`, { constraint: one }, progress));
+      }
+    }
+    if (MODE === 'formats') {
+      // The same twelve labels, written four ways. Time only.
+      const text = FIXTURES.slice(0, 3).map((f) => f.text).join('\n\n');
+      const k =detectWithRegex(text);
+      k.push(...expandNameParts(k));
+      const m = redact(text, k).redacted;
+      const twelve = [...new Set(findSuspects(m).map((s) => s.text))].slice(0, 12);
+      const inp = `Document:
+
+${m}
+
+Items:
+${twelve.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
+      const long = 'PERSON|ADDRESS|PERSONAL_NUMBER|ORGANISATION|PLACE|OTHER';
+      const short = 'PERSON|ADDRESS|NUMBER|ORG|PLACE|OTHER';
+      const csv = (words: string) => new RegExp(`^(?:${words})(?:,(?:${words})){${twelve.length - 1}}$`);
+      const array = { type: 'array', minItems: twelve.length, maxItems: twelve.length, items: { type: 'string', enum: long.split('|') } };
+      const formats: Array<[string, string, object]> = [
+        ['json-keys', 'JSON object with numbered keys (current)', labelSchema(twelve.length)],
+        ['json-array', 'JSON array of label words', array],
+        ['csv-words', 'Comma-separated label words', csv(long)],
+        ['csv-short', 'Comma-separated shorter words', csv(short)],
+      ];
+      for (const [name, what, constraint] of formats) {
+        report.rows.push(await measure(ai, name, `${what}, ${twelve.length} items`, inp, { system: LABEL_SYSTEM, constraint }, progress));
+      }
+    }
+    if (MODE === 'idle') {
+      // Does the model go cold when nothing calls it? First call after a wait.
+      const model = make(ai, { constraint: one });
+      for (const minutes of [1, 5, 15]) {
+        await timed(model, 'Hi');
+        progress(`idle ${minutes} min`);
+        await sleep(minutes * 60_000);
+        const t = await timed(model, 'Hi');
+        report.rows.push({ name: `idle-${minutes}min`, what: `First call after ${minutes} min idle`, inputChars: 2, outputChars: [t.chars], firstMs: [t.first], totalMs: [t.total] });
+      }
+    }
     const plan: Array<[string, string, string, Options]> = [
       ['A', 'One word in, one character out, no system prompt', 'Hi', { constraint: one }],
       ['A-system', 'One word in, one character out, with the label system prompt', 'Hi', { system: LABEL_SYSTEM, constraint: one }],
@@ -149,9 +203,10 @@ async function run(): Promise<void> {
       ['pass2-letters', 'Label pass answering one letter per item', labelInput, { system: LABEL_SYSTEM, constraint: letters, omitConstraint: true }],
       ['pass2-lines', 'Label pass reading only the line of each item, one letter per item', `Items, each with the line it appears on:\n${withLines}`, { system: LABEL_SYSTEM, constraint: letters, omitConstraint: true }],
     ];
-    for (const [name, what, input, o] of plan) report.rows.push(await measure(ai, name, what, input, o, progress));
+    if (MODE === 'base') for (const [name, what, input, o] of plan) report.rows.push(await measure(ai, name, what, input, o, progress));
 
     // Two reading calls one after the other, then the same two at once.
+    if (MODE !== 'base') throw new Error('done');
     const a = make(ai, { constraint: one });
     const b = make(ai, { constraint: one });
     const input = `Document:\n\n${page}`;
@@ -168,7 +223,9 @@ async function run(): Promise<void> {
     }
     report.parallel = parallel;
   } catch (err) {
-    report.error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    if (!(err instanceof Error && err.message === 'done')) {
+      report.error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    }
   }
 
   const tbody = $('rows');

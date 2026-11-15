@@ -3,6 +3,7 @@
 // Opens probe.html in a real Chrome and measures where the time in one
 // on-device call goes. Saves the report to eval-results/probe-*.json.
 // PROBE_N sets how many times each call is repeated (default 5).
+// PROBE_MODE picks the measurement: base, ceiling, formats or idle.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -22,7 +23,7 @@ try {
   chrome = await startChrome();
   console.log(`Chrome ${chrome.version}  features: ${process.env.CHROME_FEATURES ?? 'default'}\n`);
   const page = await chrome.browser.newPage();
-  await page.goto(`${server.url}probe.html?n=${N}`, { waitUntil: 'networkidle0' });
+  await page.goto(`${server.url}probe.html?n=${N}&mode=${process.env.PROBE_MODE ?? 'base'}`, { waitUntil: 'networkidle0' });
   await page.click('#run');
   const deadline = Date.now() + TIMEOUT_MIN * 60_000;
   let last = '';
