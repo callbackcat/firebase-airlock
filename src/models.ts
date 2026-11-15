@@ -2,7 +2,6 @@ import {
   getGenerativeModel,
   InferenceMode,
   InferenceSource,
-  Schema,
   type AI,
   type GenerativeModel,
 } from 'firebase/ai';
@@ -27,18 +26,43 @@ import {
 
 const MODEL_KINDS = ['PERSON', 'ADDRESS', 'EMAIL', 'PHONE', 'DOB', 'ID_NUMBER', 'ACCOUNT', 'OTHER'];
 
-const entitySchema = Schema.object({
+const MAX_ENTITIES = 40;
+/** One on-device call may take this long before it is cancelled. */
+const CALL_TIMEOUT_MS = 15_000;
+
+// Plain JSON Schema, passed to Chrome as the output constraint. The caps are
+// there because a small model sometimes runs away: maxItems stops an endless
+// list, maxLength stops an endless value.
+const entitySchema = {
+  type: 'object',
   properties: {
-    entities: Schema.array({
-      items: Schema.object({
+    entities: {
+      type: 'array',
+      maxItems: MAX_ENTITIES,
+      items: {
+        type: 'object',
         properties: {
-          kind: Schema.enumString({ enum: MODEL_KINDS }),
-          value: Schema.string(),
+          kind: { type: 'string', enum: MODEL_KINDS },
+          value: { type: 'string', maxLength: 80 },
         },
-      }),
-    }),
+        required: ['kind', 'value'],
+        additionalProperties: false,
+      },
+    },
   },
-});
+  required: ['entities'],
+  additionalProperties: false,
+};
+
+/**
+ * Options handed to Chrome's prompt() for each on-device call. The SDK passes
+ * this object through untouched, so setting `signal` on it before a call is
+ * how a call that overruns gets cancelled for real, not just ignored.
+ */
+interface PromptOptions {
+  responseConstraint: object;
+  signal?: AbortSignal;
+}
 
 const SCRUB_SYSTEM = `You find personal data in documents so it can be removed.
 List every span that could identify a private individual or their accounts:
@@ -110,31 +134,45 @@ function assertOnDevice(source: string | undefined): void {
 }
 
 export function createModels(ai: AI): Models {
-  const scrub: GenerativeModel = getGenerativeModel(ai, {
-    mode: InferenceMode.ONLY_ON_DEVICE,
-    onDeviceParams: {
-      createOptions: {
-        initialPrompts: [{ role: 'system', content: [{ type: 'text', value: SCRUB_SYSTEM }] }],
+  const lister = (system: string) => {
+    const promptOptions: PromptOptions = { responseConstraint: entitySchema };
+    const model = getGenerativeModel(ai, {
+      mode: InferenceMode.ONLY_ON_DEVICE,
+      onDeviceParams: {
+        createOptions: {
+          initialPrompts: [{ role: 'system', content: [{ type: 'text', value: system }] }],
+        },
+        promptOptions,
       },
-      promptOptions: { responseConstraint: entitySchema },
-    },
-  });
+    });
+    return { model, promptOptions };
+  };
+  const scrub = lister(SCRUB_SYSTEM);
+  const review = lister(REVIEW_SYSTEM);
 
-  const review: GenerativeModel = getGenerativeModel(ai, {
-    mode: InferenceMode.ONLY_ON_DEVICE,
-    onDeviceParams: {
-      createOptions: {
-        initialPrompts: [{ role: 'system', content: [{ type: 'text', value: REVIEW_SYSTEM }] }],
-      },
-      promptOptions: { responseConstraint: entitySchema },
-    },
-  });
-
-  const list = async (model: GenerativeModel, text: string): Promise<RawEntity[]> => {
-    const result = await model.generateContent(`Document:\n\n${text}`);
-    assertOnDevice(result.response.inferenceSource);
-    const parsed = JSON.parse(result.response.text()) as { entities?: RawEntity[] };
-    return Array.isArray(parsed.entities) ? parsed.entities : [];
+  const list = async (target: ReturnType<typeof lister>, text: string): Promise<RawEntity[]> => {
+    // A small model sometimes loops until it hits its output limit, which
+    // takes minutes and holds up every call queued behind it. Cancel it.
+    const abort = new AbortController();
+    target.promptOptions.signal = abort.signal;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        abort.abort();
+        reject(new Error(`On-device call took longer than ${CALL_TIMEOUT_MS / 1000} s.`));
+      }, CALL_TIMEOUT_MS);
+    });
+    try {
+      const result = await Promise.race([
+        target.model.generateContent(`Document:\n\n${text}`, { signal: abort.signal }),
+        timeout,
+      ]);
+      assertOnDevice(result.response.inferenceSource);
+      const parsed = JSON.parse(result.response.text()) as { entities?: RawEntity[] };
+      return Array.isArray(parsed.entities) ? parsed.entities.slice(0, MAX_ENTITIES) : [];
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   // Reads a photographed or scanned letter. Also pinned to the device.
@@ -150,16 +188,28 @@ export function createModels(ai: AI): Models {
 
   return {
     async prepareOnDevice(onProgress) {
-      await scrub.initializeDeviceModel(onProgress);
+      await scrub.model.initializeDeviceModel(onProgress);
     },
 
     async extract(chunk) {
-      const first = await list(scrub, chunk);
+      // First pass: one retry, because a failed call is usually a one-off.
+      let first: RawEntity[];
+      try {
+        first = await list(scrub, chunk);
+      } catch (err) {
+        console.warn('Scrub pass failed, retrying once', err);
+        first = await list(scrub, chunk);
+      }
       // Mask what the patterns and the first pass found, then look again.
       const known = [...detectWithRegex(chunk), ...validateModelEntities(chunk, first)];
       known.push(...expandNameParts(known));
-      const second = await list(review, redact(chunk, known).redacted);
-      return [...first, ...second];
+      try {
+        return [...first, ...(await list(review, redact(chunk, known).redacted))];
+      } catch (err) {
+        // The review pass is a bonus. Losing it must not lose the first pass.
+        console.warn('Review pass failed, keeping the first pass', err);
+        return first;
+      }
     },
 
     async transcribe(image) {

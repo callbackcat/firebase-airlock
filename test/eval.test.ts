@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { detect, type Extractor } from '../src/airlock';
 import { FIXTURES } from '../src/eval/fixtures';
 import { HOLDOUT } from '../src/eval/holdout';
+import { HOLDOUT2 } from '../src/eval/holdout2';
 import { scoreDoc, summarise, verdict } from '../src/eval/score';
+
+const ALL = [...FIXTURES, ...HOLDOUT, ...HOLDOUT2];
 
 describe('fixtures', () => {
   it('has unique ids', () => {
-    expect(new Set([...FIXTURES, ...HOLDOUT].map((f) => f.id)).size).toBe(FIXTURES.length + HOLDOUT.length);
+    expect(new Set(ALL.map((f) => f.id)).size).toBe(ALL.length);
   });
 
-  it.each([...FIXTURES, ...HOLDOUT].map((f) => [f.id, f] as const))('%s: every label appears in the letter', (_id, f) => {
+  it.each(ALL.map((f) => [f.id, f] as const))('%s: every label appears in the letter', (_id, f) => {
     for (const item of f.gold) expect(f.text, `gold "${item.value}"`).toContain(item.value);
     for (const value of f.keep) expect(f.text, `keep "${value}"`).toContain(value);
   });
