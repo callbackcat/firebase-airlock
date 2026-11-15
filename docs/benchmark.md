@@ -1,15 +1,18 @@
 # Benchmark: runs against a real on-device model
 
-**Verdict: works with the changes made, as a way to reduce what is shared, with review as a required step.**
-On eight letters it had never seen, the scrub now hides 94.7% of the subject's
-details on its own (88.7% to 100% over five runs) and marks every detail it
-missed for the reviewer, so hidden-or-flagged is 100%. It keeps 98% of the
-useful facts. A scrub takes about 6 seconds a letter and no longer stalls.
-The first run of the day hid 86%, with one run in three below 80%.
+**Verdict: passes on unseen letters, as a way to reduce what is shared, with review still a required step.**
+On eight letters it had never seen, the scrub hides 97.4% of the subject's
+details on its own (95.7% to 97.8%, five runs, all five a pass) and keeps
+every useful fact. A scrub takes about 5.5 seconds a letter on a GPU and about
+22 seconds on CPU, and the fixed patterns appear in a few milliseconds. The
+first run of the day hid 86%, with one run in three below 80%.
 
-The second half of this page, [Iterations](#iterations-second-session), has the
-current numbers and the open weak points. The first half is the first run, kept
-as the record of where it started.
+It is still not a guarantee: two details in those eight letters were neither
+hidden nor marked in any run.
+
+This page has three parts: the first run, the
+[second session](#iterations-second-session) and the
+[third session](#iterations-third-session), which has the current numbers.
 
 Run on 15 November 2026.
 
@@ -256,3 +259,66 @@ Ideas not tried yet: have the second pass choose among the marked items
 instead of writing free text, which would remove invented values and runaway
 lists; send only the lines that hold a mark to the second pass, for speed; a
 names list for lower-case text; a vote over two first passes.
+
+## Iterations (third session)
+
+Same machine and Chrome. The ideas left untried at the end of the second
+session, one at a time. `holdout3` had informed nothing yet at the start, but
+its misses were then used, so a fourth set, `holdout4`, was written while the
+first change was being measured and committed before its first run. **Its
+numbers are the result.**
+
+### What was tried
+
+| # | Change | Measured effect |
+|---|---|---|
+| 5 | Titled names with an apostrophe after one letter ("O'Shaughnessy") are matched whole | Fixes the known bug |
+| 6a | Second pass picks from the marked items instead of writing free text | Hid 100% on three sets, but kept only 82% to 88% of useful facts: asked "which of these are personal?", the model says yes to nearly everything, organisations included. Not kept as the default |
+| 6b | Second pass gives every marked item one label (person, address, personal number, organisation, place, other); only personal labels are hidden. The answer has a fixed size | `holdout3` 94.7% to 99.1% hidden, 96.7% kept; `holdout2` 99.3%, 97.5%; `holdout` 100%, 91.9%. Ten runs, all a pass. **Kept as the default** |
+| 7 | The app shows the pattern results at once and adds the model's finds when they arrive; sending waits for the model | Patterns on screen after 0 to 4 ms |
+| 8 | The time limit follows the machine (five times its usual call, 15 s to 2 min); a first pass over 20 s skips the second pass | With Chrome's CPU backend forced: 22 s a letter instead of 5 s, no call cancelled, same accuracy |
+| 9 | An item labelled personal is dropped when its name holds an organisation word ("Heating", "Plan", "Payment") | `holdout` kept 91.9% to 97.6% |
+
+Not tried: sending only the marked lines to the second pass, a names list for
+lower-case text, a vote over two first passes. Free-text review and
+pick-from-list are still in the code behind `VITE_PASS2`, for comparison.
+
+### Current numbers
+
+| Set | Runs | Subject hidden | Subject hidden or flagged | Others hidden | Useful facts kept | Median per letter |
+|---|---|---|---|---|---|---|
+| **`holdout4`, never tuned on** | 5 | **97.4% (95.7 to 97.8)** | 97.8% | 93.3% | **100%** | 5.0 to 5.8 s |
+| `holdout3` | 3 | 100% | 100% | 100% | 99.3% (97.8 to 100) | 5.3 s |
+| `holdout` | 3 | 100% | 100% | 100% | 97.6% | 6.4 to 7.2 s |
+| Tuning set (12 letters) | 3 | 100% | 100% | 100% | 98.7% (98.0 to 100) | 5.2 to 6.1 s |
+
+All fourteen of those runs are a pass. With no model at all, on `holdout4`:
+52.2% of subject details hidden, 97.8% hidden or flagged, 100% of useful facts
+kept, about 13 underlines a letter.
+
+End-to-end run: nine checks passed, one cloud call, no personal detail in the
+request body, patterns on screen 4 ms after the click.
+
+### A weaker machine
+
+`CHROME_FEATURES=OnDeviceModelForceCpuBackend npm run eval` makes Chrome run
+the model on the CPU. On this 8-core Ryzen that took 17 to 31 s a letter
+(median 22 s) against about 5 s on the GPU. An older 4-core laptop will be
+slower than that; it was not measured. `--disable-gpu` does not move the model
+off the GPU, so it is no test.
+
+### Open weak points
+
+- **Two details in `holdout4` were neither hidden nor marked, in every run.**
+  A surname typed in lower case in a chat ("mr pettigrew", "pettigrew
+  lettings"), and a Canadian postcode ("H2X 3J6": the mark for mixed codes
+  needs four characters and each half has three). Left unfixed so the set
+  stays a clean test.
+- **Lower-case text in general.** Patterns and marks lean on capital letters.
+- **Speed on ordinary machines.** 22 s a letter on a fast CPU. Below Chrome's
+  minimum there is no model and the user gets patterns plus underlines.
+- **Noise in the marks.** About 7 underlines a letter with the model, 13
+  without, organisation names and headings among them.
+- **The test itself.** One machine, one Chrome version, English, 52 fictional
+  letters written by the same author as the patterns. A pass on 46 subject
+  details is a small sample: one more miss a run would be a fail.

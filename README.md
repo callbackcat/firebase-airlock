@@ -18,8 +18,8 @@ Built on [Firebase AI Logic](https://firebase.google.com/docs/ai-logic/hybrid)
 hybrid inference for Web (Chrome).
 
 > Status: proof of concept. It runs end to end on a real on-device model. On
-> unseen letters it hides about 95% of personal details and underlines what it
-> missed, so the approval step matters. See
+> unseen letters it hides about 97% of personal details and underlines most of
+> what it missed, so the approval step still matters. See
 > [What is and is not tested](#what-is-and-is-not-tested).
 
 ## Why hybrid, and why both halves are needed
@@ -118,15 +118,17 @@ Claude Code.
 
 Tested (details in [docs/benchmark.md](docs/benchmark.md)):
 
-- Core logic, patterns, review marks and benchmark scoring: 67 unit tests.
+- Core logic, patterns, review marks and benchmark scoring: 75 unit tests.
 - The on-device model through Firebase AI Logic, on Chrome 157 on Windows 11:
   the scrub ran on device, including with the page offline.
 - Scrub accuracy on 8 letters that were never used for tuning, five runs: it
-  hides 94.7% of the subject's details (88.7% to 100%), marks every detail it
-  missed for the reviewer, and keeps 98% of the useful facts. With no model,
-  patterns alone hide 72% and mark most of the rest.
-- Reliability: 25 benchmark runs in a row with no failed or stalled on-device
-  call. A scrub takes about 6 seconds a letter.
+  hides 97.4% of the subject's details (95.7% to 97.8%) and keeps every useful
+  fact. With no model, patterns alone hide 52% and underline nearly all the
+  rest for the reader.
+- Speed: patterns appear in a few milliseconds; the on-device model takes
+  about 5.5 seconds a letter on a GPU and about 22 seconds on CPU.
+- Reliability: no failed or stalled on-device call in the last 40 benchmark
+  runs.
 - One full run checked at the network level: nine checks passed, no request
   left the machine during the scrub, and the cloud request held no personal
   detail.
