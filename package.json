@@ -1,0 +1,23 @@
+{
+  "name": "airlock",
+  "version": "0.1.0",
+  "description": "See exactly what the cloud sees: on-device redaction in front of a cloud model, built on Firebase AI Logic hybrid inference.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "firebase": "^13.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}
