@@ -108,6 +108,8 @@
         font-weight: 600;
       }
       .chip { background: var(--cloud-bg); color: var(--cloud); cursor: help; }
+      .suspect { text-decoration: underline wavy var(--warn); text-underline-offset: 3px; background: var(--warn-bg); border-radius: 3px; cursor: pointer; }
+      .suspect:hover, .suspect:focus-visible { outline: 2px solid var(--warn); }
       td .chip { white-space: nowrap; font-size: 12px; }
       .restored { background: var(--device-bg); color: var(--device); }
       .unknown { background: var(--warn-bg); color: var(--warn); }
@@ -135,6 +137,7 @@
       td.off { color: var(--muted); text-decoration: line-through; }
       .note { font-size: 13px; color: var(--muted); margin: 0; }
       .note.warn { color: var(--warn); background: var(--warn-bg); padding: 8px 10px; border-radius: 8px; }
+      .note:empty { display: none; }
       dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; font-size: 13px; }
       dt { color: var(--muted); }
       dd { margin: 0; font-family: var(--mono); font-size: 12.5px; }
@@ -163,8 +166,9 @@
 
       <section class="cloud">
         <div class="where cloud">The only thing that leaves</div>
-        <h2>What the cloud will see<small>Hover a placeholder to see what it hides. Untick anything you are happy to send.</small></h2>
+        <h2>What the cloud will see<small>Hover a placeholder to see what it hides. Underlined text is still readable: click it to hide it.</small></h2>
         <div id="preview" class="doc empty">Nothing yet. Scrub a document first.</div>
+        <p id="suspect-note" class="note warn" aria-live="polite"></p>
         <div id="entities"></div>
         <div class="row">
           <input id="manual" type="text" placeholder="Hide another word or phrase" aria-label="Hide another word or phrase" />

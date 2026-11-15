@@ -81,6 +81,10 @@ const luhn = (raw: string): boolean => {
   return sum % 10 === 0;
 };
 
+// A line under a sign-off holding one of these is an organisation, not a person.
+const ORG_WORD =
+  /\b(?:Practice|Clinic|Council|Team|Department|Services?|Ltd|Limited|LLP|Lettings|Surgery|Centre|Center|Bank|School|Office|Group|Solicitors|Insurance|Mutual|Energy|University|Hospital|Trust|Agency|Company|Support|Customer|Payroll|Accounts|Recovery|Revenue|Management|Association|Society|Pharmacy|Housing|Officer|Manager|Director|Adviser|Advisor|Representative)\b/i;
+
 // UK-leaning on purpose: the demo documents are UK letters. Add locales here.
 const DETECTORS: Detector[] = [
   { kind: 'EMAIL', pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
@@ -102,9 +106,38 @@ const DETECTORS: Detector[] = [
     // "Employee number 0042". The value is capitals and digits and must hold a digit.
     kind: 'ID_NUMBER',
     pattern:
-      /\b(?:[Rr]ef(?:erence)?|REF(?:ERENCE)?|[Nn]umber|NUMBER|[Nn]o\.|NO\.|ID)(?:\s*:\s*|\s+)([A-Z0-9]+(?:[\/-][A-Z0-9]+)*(?: \d+[A-Z0-9]*)?)/g,
+      /(?:\b(?:[Rr]ef(?:erence)?|REF(?:ERENCE)?|[Nn]umber|NUMBER|[Nn]o(?=[.:])\.?|NO(?=[.:])\.?|ID)|#)(?:\s+is)?\s*:?\s*([A-Z0-9]+(?:[\/-][A-Z0-9]+)*(?: \d+[A-Z0-9]*)*)/g,
     group: true,
     accept: (v) => v.length >= 4 && /\d/.test(v),
+  },
+  {
+    // "Dr Tomasz Bielak", "Mr P. Underhill", "Ms Dlamini". Staff and third
+    // parties are named this way and the model often leaves them out.
+    kind: 'PERSON',
+    pattern:
+      /\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof)\.? ((?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?(?: (?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?){0,3})/gu,
+    group: true,
+  },
+  {
+    // "my daughter Ottilie", "your sister Aoife".
+    kind: 'PERSON',
+    pattern:
+      /\b(?:[Mm]y|[Yy]our|[Hh]is|[Hh]er|[Tt]heir|[Oo]ur) (?:daughter|son|wife|husband|partner|sister|brother|mother|father|mum|dad|child|friend|neighbou?r|carer|girlfriend|boyfriend|aunt|uncle|cousin|niece|nephew|grand(?:mother|father|son|daughter)|flatmate|housemate),? (\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?(?: \p{Lu}[\p{L}-]+)?)/gu,
+    group: true,
+  },
+  {
+    // The name on the line after a sign-off: "Yours sincerely,\nD. Whitcombe".
+    kind: 'PERSON',
+    pattern:
+      /(?:Yours (?:sincerely|faithfully|truly)|(?:Kind|Best|Warm|Many) (?:regards|wishes|thanks)|With best wishes|Regards|Sincerely|Thanks|Thank you|Cheers),?[ \t]*\r?\n+[ \t]*((?:[A-Z]\.? ?)?\p{Lu}[\p{L}'’-]+(?: (?:[A-Z]\.? )?\p{Lu}[\p{L}'’-]+){0,2})[ \t]*(?=\r?\n|$)/gu,
+    group: true,
+    accept: (v) => !ORG_WORD.test(v),
+  },
+  {
+    // A street address anywhere, including inside a sentence: "41 Sedge Row".
+    kind: 'ADDRESS',
+    pattern:
+      /\b(?:(?:Flat|Apartment|Apt|Unit|Room) ?\d+[A-Za-z]?,? )?\d{1,4}[A-Za-z]? (?:\p{Lu}[\p{L}'’.]* ){1,3}(?:Road|Rd|Street|St|Avenue|Ave|Lane|Ln|Close|Drive|Way|Court|Ct|Place|Pl|Crescent|Gardens|Square|Terrace|Row|Yard|Walk|Fold|Lea|Hill|Grove|Mews|Rise|Park|Wharf|View|Green|Parade|Boulevard|Blvd|Bank|Gate|Chase|Croft|Meadows?|Mount|Vale|Villas|Quay|Wynd|Brae)\b/gu,
   },
   // UK vehicle registration, current format.
   { kind: 'OTHER', pattern: /\b[A-Z]{2}\d{2} ?[A-Z]{3}\b/g },
@@ -216,6 +249,32 @@ export function expandNameParts(entities: Entity[]): Entity[] {
   return out;
 }
 
+/**
+ * A short form of a name already found: "Leo" signing off a note from
+ * "Leopold". Any capitalised word in the text that is the start of a known
+ * name part is treated as that person.
+ */
+export function shortForms(text: string, entities: Entity[]): Entity[] {
+  const parts = new Set<string>();
+  for (const e of entities) {
+    if (e.kind !== 'PERSON') continue;
+    for (const p of e.value.split(/[\s,&]+/)) if (p.length >= 5) parts.add(p.toLowerCase());
+  }
+  if (!parts.size) return [];
+  const out: Entity[] = [];
+  const seen = new Set<string>();
+  for (const m of text.matchAll(/(?<![\p{L}\p{N}])\p{Lu}\p{Ll}{2,}(?![\p{L}\p{N}])/gu)) {
+    const word = m[0];
+    const key = word.toLowerCase();
+    if (seen.has(key) || parts.has(key) || NOT_A_NAME_PART.has(key)) continue;
+    seen.add(key);
+    if ([...parts].some((p) => p.startsWith(key))) {
+      out.push({ kind: 'PERSON', value: word, source: 'regex', derived: true });
+    }
+  }
+  return out;
+}
+
 export interface Detection {
   entities: Entity[];
   /** False when no extractor was given or it failed: regex-only coverage. */
@@ -224,17 +283,21 @@ export interface Detection {
 }
 
 export async function detect(text: string, extract?: Extractor): Promise<Detection> {
-  const entities = detectWithRegex(text);
-  if (!extract) return { entities, modelUsed: false };
+  const regex = detectWithRegex(text);
+  const withDerived = (found: Entity[]): Entity[] => {
+    const parts = expandNameParts(found);
+    return [...found, ...parts, ...shortForms(text, [...found, ...parts])];
+  };
+  if (!extract) return { entities: withDerived(regex), modelUsed: false };
   try {
+    const entities = [...regex];
     for (const chunk of chunkText(text)) {
       entities.push(...validateModelEntities(text, await extract(chunk)));
     }
-    entities.push(...expandNameParts(entities));
-    return { entities, modelUsed: true };
+    return { entities: withDerived(entities), modelUsed: true };
   } catch (err) {
     return {
-      entities: entities.filter((e) => e.source !== 'model'),
+      entities: withDerived(regex),
       modelUsed: false,
       modelError: err instanceof Error ? err.message : String(err),
     };

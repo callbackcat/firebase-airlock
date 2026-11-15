@@ -1,4 +1,5 @@
 import { findLeaks, redact, type Detection, type EntityKind } from '../airlock';
+import { findSuspects, type Suspect } from '../suspects';
 import type { Fixture, Gold } from './fixtures';
 
 /** True when `value` can no longer be read in `text`. */
@@ -9,6 +10,8 @@ export interface ItemScore extends Gold {
   hiddenByPatterns: boolean;
   /** Hidden by patterns plus the on-device model. */
   hidden: boolean;
+  /** Not hidden, but marked for the reviewer to look at. */
+  flagged: boolean;
 }
 
 export interface DocScore {
@@ -22,6 +25,10 @@ export interface DocScore {
   modelSpansUsed: number;
   items: ItemScore[];
   keep: Array<{ value: string; kept: boolean }>;
+  /** How many spans the review step marks in the outgoing text. */
+  suspects: number;
+  /** Words in the outgoing text, to put the number of suspects in proportion. */
+  words: number;
 }
 
 export function scoreDoc(
@@ -35,6 +42,7 @@ export function scoreDoc(
     detection.entities.filter((e) => e.source === 'regex'),
   ).redacted;
   const full = redact(fixture.text, detection.entities).redacted;
+  const suspects = findSuspects(full);
 
   return {
     id: fixture.id,
@@ -48,15 +56,37 @@ export function scoreDoc(
       ...item,
       hiddenByPatterns: hidden(patternsOnly, item.value),
       hidden: hidden(full, item.value),
+      flagged: !hidden(full, item.value) && coveredBy(full, item.value, suspects),
     })),
     keep: fixture.keep.map((value) => ({ value, kept: !hidden(full, value) })),
+    suspects: suspects.length,
+    words: full.split(/\s+/).filter(Boolean).length,
   };
+}
+
+/** True when every place `value` is still readable sits inside a marked span. */
+function coveredBy(text: string, value: string, suspects: Suspect[]): boolean {
+  let from = 0;
+  let seen = false;
+  for (;;) {
+    const at = text.indexOf(value, from);
+    if (at < 0) return seen;
+    seen = true;
+    const end = at + value.length;
+    // A suspect that overlaps the value draws the eye to it.
+    if (!suspects.some((s) => s.start < end && at < s.end)) return false;
+    from = end;
+  }
 }
 
 export interface Tally {
   total: number;
   hiddenByPatterns: number;
   hidden: number;
+  /** Missed by the scrub but marked for review. */
+  flagged: number;
+  /** (hidden + flagged) / total: what a reviewer who checks every mark would catch. */
+  reviewRecall: number | null;
   /** hidden / total, or null when there is nothing to count. */
   recall: number | null;
 }
@@ -74,7 +104,9 @@ export interface Summary {
   keep: { total: number; kept: number; rate: number | null };
   model: { spansRaw: number; spansUsed: number };
   medianMs: number;
-  misses: Array<{ doc: string; kind: EntityKind; value: string; who: string }>;
+  /** Review marks per letter, and per 100 words, on average. */
+  suspects: { perLetter: number; per100Words: number };
+  misses: Array<{ doc: string; kind: EntityKind; value: string; who: string; flagged: boolean }>;
   overRedacted: Array<{ doc: string; value: string }>;
 }
 
@@ -85,6 +117,8 @@ function tally(items: ItemScore[]): Tally {
     total,
     hiddenByPatterns: items.filter((i) => i.hiddenByPatterns).length,
     hidden: h,
+    flagged: items.filter((i) => i.flagged).length,
+    reviewRecall: total ? (h + items.filter((i) => i.flagged).length) / total : null,
     recall: total ? h / total : null,
   };
 }
@@ -112,10 +146,14 @@ export function summarise(docs: DocScore[]): Summary {
       spansUsed: docs.reduce((n, d) => n + d.modelSpansUsed, 0),
     },
     medianMs: times.length ? times[Math.floor(times.length / 2)] : 0,
+    suspects: {
+      perLetter: docs.length ? docs.reduce((n, d) => n + d.suspects, 0) / docs.length : 0,
+      per100Words: (100 * docs.reduce((n, d) => n + d.suspects, 0)) / Math.max(1, docs.reduce((n, d) => n + d.words, 0)),
+    },
     misses: docs.flatMap((d) =>
       d.items
         .filter((i) => !i.hidden)
-        .map((i) => ({ doc: d.id, kind: i.kind, value: i.value, who: i.who ?? 'subject' })),
+        .map((i) => ({ doc: d.id, kind: i.kind, value: i.value, who: i.who ?? 'subject', flagged: i.flagged })),
     ),
     overRedacted: docs.flatMap((d) =>
       d.keep.filter((k) => !k.kept).map((k) => ({ doc: d.id, value: k.value })),

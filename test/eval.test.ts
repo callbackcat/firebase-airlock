@@ -16,12 +16,12 @@ describe('fixtures', () => {
 });
 
 describe('scoring', () => {
-  it('reports no-model when only patterns ran, and names never count as hidden', async () => {
+  it('reports no-model when only patterns ran, whatever the patterns hid', async () => {
     const docs = [];
     for (const f of FIXTURES) docs.push(scoreDoc(f, await detect(f.text), 1, 0));
     const s = summarise(docs);
     expect(verdict(s).level).toBe('no-model');
-    expect(s.byKind.PERSON?.hidden).toBe(0);
+    expect(s.byKind.PERSON?.recall).toBeLessThan(1);
     expect(s.byKind.POSTCODE?.recall).toBe(1);
     expect(s.byKind.EMAIL?.recall).toBe(1);
     expect(s.keep.rate).toBe(1);
@@ -41,22 +41,30 @@ describe('scoring', () => {
   });
 
   it('counts over-redaction and misses', async () => {
-    const f = FIXTURES.find((x) => x.id === 'council-tax')!;
+    const f = {
+      id: 'synthetic',
+      title: 'Synthetic',
+      text: 'Hartwell Housing Trust\n\nThe flat was let to Tomas Varga. Ask for Varga or for Quill at the desk.\nRent is £500.',
+      gold: [
+        { kind: 'PERSON' as const, value: 'Tomas', who: 'subject' as const },
+        { kind: 'PERSON' as const, value: 'Varga', who: 'subject' as const },
+        { kind: 'PERSON' as const, value: 'Quill', who: 'other' as const },
+      ],
+      keep: ['Hartwell Housing Trust', '£500'],
+    };
     const sloppy: Extractor = async () => [
-      { kind: 'PERSON', value: 'Mr Oluwaseun Adebayo' },
-      { kind: 'OTHER', value: 'Harrowden Borough Council' },
+      { kind: 'PERSON', value: 'Tomas Varga' },
+      { kind: 'OTHER', value: 'Hartwell Housing Trust' },
       { kind: 'PERSON', value: 'Someone Else Entirely' },
     ];
     const d = scoreDoc(f, await detect(f.text, sloppy), 1, 3);
     const s = summarise([d]);
     expect(d.modelSpansRaw).toBe(3);
     expect(d.modelSpansUsed).toBe(2);
-    expect(s.overRedacted).toEqual([{ doc: 'council-tax', value: 'Harrowden Borough Council' }]);
-    // "Dear Mr Adebayo" is a different span from "Mr Oluwaseun Adebayo"; name parts cover it.
-    expect(s.misses.map((m) => m.value)).not.toContain('Adebayo');
-    expect(s.misses.map((m) => m.value)).not.toContain('Oluwaseun');
-    // The signing officer was never returned by the extractor, so she still leaks.
-    expect(s.misses.map((m) => m.value)).toContain('Ramanathan');
-    expect(verdict(s).level).toBe('fail');
+    expect(s.overRedacted).toEqual([{ doc: 'synthetic', value: 'Hartwell Housing Trust' }]);
+    // "Ask for Varga" is a different span from "Tomas Varga"; name parts cover it.
+    expect(s.misses.map((m) => m.value)).toEqual(['Quill']);
+    expect(s.subject.recall).toBe(1);
+    expect(s.other.recall).toBe(0);
   });
 });

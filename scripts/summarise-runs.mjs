@@ -17,6 +17,9 @@ const stat = (xs) =>
 console.log(`\n${runs.length} runs, ${runs[0].docs.length} letters`);
 console.log('Subject hidden   ', stat(runs.map((r) => r.summary.subject.recall)));
 console.log('Others hidden    ', stat(runs.map((r) => r.summary.other.recall)));
+console.log('Subject hidden or flagged', stat(runs.map((r) => r.summary.subject.reviewRecall)));
+console.log('Others hidden or flagged ', stat(runs.map((r) => r.summary.other.reviewRecall)));
+console.log('Review marks/letter', runs.map((r) => r.summary.suspects.perLetter.toFixed(1)).join(', '), ' per 100 words', runs.map((r) => r.summary.suspects.per100Words.toFixed(1)).join(', '));
 console.log('Useful facts kept', stat(runs.map((r) => r.summary.keep.rate)));
 console.log('Median ms/letter ', runs.map((r) => r.summary.medianMs).join(', '));
 console.log('Verdicts         ', runs.map((r) => r.verdict.level).join(', '));
@@ -34,7 +37,7 @@ console.log(
   count(
     runs.flatMap((r) =>
       r.summary.misses.map(
-        (m) => `${m.doc.padEnd(18)} ${m.kind.padEnd(10)} ${(m.who ?? '').padEnd(8)} ${m.value}`,
+        (m) => `${m.doc.padEnd(18)} ${m.kind.padEnd(10)} ${(m.who ?? '').padEnd(8)} ${m.flagged ? 'flagged  ' : 'UNFLAGGED'} ${m.value}`,
       ),
     ),
   ) || '  none',

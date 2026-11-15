@@ -8,6 +8,7 @@ import {
   type Redaction,
 } from './airlock';
 import { initFirebase } from './firebase';
+import { findSuspects } from './suspects';
 import { createModels, type Models, type Task } from './models';
 import { SAMPLE_LETTER } from './sample';
 
@@ -142,13 +143,53 @@ function renderPreview(): void {
   const r = state.redaction!;
   const preview = $('preview');
   preview.classList.remove('empty');
-  preview.replaceChildren(
-    ...splitByPlaceholders(r.redacted).map((s) =>
-      s.placeholder && r.vault[s.placeholder] !== undefined
-        ? el('span', { className: 'chip', textContent: s.placeholder, title: r.vault[s.placeholder] })
-        : document.createTextNode(s.text),
-    ),
-  );
+  // Mark what may have been missed. Clicking a mark hides that text everywhere.
+  const suspects = findSuspects(r.redacted);
+  const nodes: Node[] = [];
+  let offset = 0;
+  for (const s of splitByPlaceholders(r.redacted)) {
+    const from = offset;
+    offset += s.text.length;
+    if (s.placeholder && r.vault[s.placeholder] !== undefined) {
+      nodes.push(el('span', { className: 'chip', textContent: s.placeholder, title: r.vault[s.placeholder] }));
+      continue;
+    }
+    let cursor = from;
+    for (const mark of suspects) {
+      if (mark.start < cursor || mark.end > offset) continue;
+      if (mark.start > cursor) nodes.push(document.createTextNode(r.redacted.slice(cursor, mark.start)));
+      const span = el('span', {
+        className: 'suspect',
+        textContent: mark.text,
+        title: 'Still readable. Click to hide it.',
+        tabIndex: 0,
+      });
+      span.setAttribute('role', 'button');
+      const hide = () => hideValue(mark.text);
+      span.onclick = hide;
+      span.onkeydown = (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          hide();
+        }
+      };
+      nodes.push(span);
+      cursor = mark.end;
+    }
+    if (cursor < offset) nodes.push(document.createTextNode(r.redacted.slice(cursor, offset)));
+  }
+  preview.replaceChildren(...nodes);
+
+  $('suspect-note').textContent = suspects.length
+    ? `${suspects.length} underlined ${suspects.length === 1 ? 'item is' : 'items are'} still readable and could be personal. Click any to hide it.`
+    : '';
+}
+
+function hideValue(value: string): void {
+  if (!value.trim() || !state.redaction) return;
+  state.all.push({ kind: 'OTHER', value: value.trim(), source: 'manual' });
+  state.excluded.delete(normalise(value));
+  recompute();
 }
 
 function renderEntities(): void {
