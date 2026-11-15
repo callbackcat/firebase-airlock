@@ -13,6 +13,7 @@ import {
   type Extractor,
   type RawEntity,
 } from './airlock';
+import { findSuspects } from './suspects';
 
 /**
  * Two model instances, two rules:
@@ -102,6 +103,91 @@ Copy each value exactly as written in the document, character for character.
 Do not list organisations, job titles, appointment dates or amounts of money.
 If nothing personal is still readable, return an empty list.`;
 
+// The other kind of second pass. Instead of writing values out, the model is
+// given the items the review step marked and may only pick from that list. It
+// cannot invent a value or run on, and it only reads what is still in doubt.
+const PICK_SYSTEM = `You check a document after personal data was removed.
+Removed values appear as placeholders in square brackets, such as [PERSON_1].
+After the document there is a list of words and numbers that are still
+readable in it. Pick every item on the list that is personal data:
+- a person's name or part of one (first name, surname, initial and surname,
+  nickname), including staff, relatives and anyone else who is named
+- part of a home address: a house or building name, a street, a flat
+- a reference, account, policy, order, tracking or membership number, a
+  password or a code that belongs to one person
+Do not pick organisations, departments, job titles, towns, countries,
+products, medicines, headings, days, months or amounts of money.
+Give each item you pick exactly as it is written in the list.`;
+
+// A third kind of second pass. Picking from a list hid everything personal but
+// also most organisations: asked "which of these are personal?", a small
+// model says yes to nearly all of them. Here it must give every marked item
+// one label, with "organisation", "place" and "other" on offer, and only the
+// personal labels are hidden. The answer has a fixed size, so it cannot run on.
+const LABEL_SYSTEM = `You check a document after personal data was removed.
+Removed values appear as placeholders in square brackets, such as [PERSON_1].
+After the document there is a numbered list of words and numbers that are
+still readable in it. Give every item exactly one label:
+PERSON: a human being's name or part of one (first name, surname, initial and
+  surname, nickname). Staff, relatives and anyone else who is named count.
+ADDRESS: part of where a private person lives: a house or building name, a
+  street, a flat.
+PERSONAL_NUMBER: a reference, account, policy, order, tracking, membership,
+  passport or customer number, a password, or a code that belongs to one person.
+ORGANISATION: a company, shop, clinic, school, council, charity, government
+  body, department, team, scheme, law, benefit, product or brand.
+PLACE: a town, city, region, country, ward or public building.
+OTHER: anything else, such as a heading, job title, medicine, day, month,
+  amount, course code or ordinary word.
+Judge each item by how it is used in the document.`;
+
+const LABELS = ['PERSON', 'ADDRESS', 'PERSONAL_NUMBER', 'ORGANISATION', 'PLACE', 'OTHER'] as const;
+const LABEL_KIND: Partial<Record<(typeof LABELS)[number], string>> = {
+  PERSON: 'PERSON',
+  ADDRESS: 'ADDRESS',
+  PERSONAL_NUMBER: 'ID_NUMBER',
+};
+
+/** One required label per numbered item: {"1": "PERSON", "2": "ORGANISATION", ...}. */
+const labelSchema = (count: number) => {
+  const keys = Array.from({ length: count }, (_, i) => String(i + 1));
+  return {
+    type: 'object',
+    properties: Object.fromEntries(keys.map((k) => [k, { type: 'string', enum: LABELS }])),
+    required: keys,
+    additionalProperties: false,
+  };
+};
+
+/** Which second pass runs. Set VITE_PASS2 to compare them in the benchmark. */
+const PASS2 = ((import.meta.env.VITE_PASS2 as string | undefined) ?? 'label') as
+  | 'review'
+  | 'pick'
+  | 'label'
+  | 'both'
+  | 'none';
+
+const pickSchema = (candidates: string[]) => ({
+  type: 'object',
+  properties: {
+    entities: {
+      type: 'array',
+      maxItems: candidates.length,
+      items: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['PERSON', 'ADDRESS', 'ID_NUMBER', 'OTHER'] },
+          value: { type: 'string', enum: candidates },
+        },
+        required: ['kind', 'value'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['entities'],
+  additionalProperties: false,
+});
+
 const CLOUD_SYSTEM = `You help people deal with letters and paperwork.
 Personal details in the document were replaced with placeholders such as
 [PERSON_1] or [ADDRESS_1] before it reached you. Treat every placeholder as
@@ -149,12 +235,28 @@ export function createModels(ai: AI): Models {
   };
   const scrub = lister(SCRUB_SYSTEM);
   const review = lister(REVIEW_SYSTEM);
+  const picker = lister(PICK_SYSTEM);
+  const labeller = lister(LABEL_SYSTEM);
 
-  const list = async (target: ReturnType<typeof lister>, text: string): Promise<RawEntity[]> => {
+  const list = async (
+    target: ReturnType<typeof lister>,
+    text: string,
+    constraint: object = entitySchema,
+  ): Promise<RawEntity[]> => {
+    const parsed = (await callJson(target, text, constraint)) as { entities?: RawEntity[] };
+    return Array.isArray(parsed.entities) ? parsed.entities.slice(0, MAX_ENTITIES) : [];
+  };
+
+  const callJson = async (
+    target: ReturnType<typeof lister>,
+    text: string,
+    constraint: object,
+  ): Promise<unknown> => {
     // A small model sometimes loops until it hits its output limit, which
     // takes minutes and holds up every call queued behind it. Cancel it.
     const abort = new AbortController();
     target.promptOptions.signal = abort.signal;
+    target.promptOptions.responseConstraint = constraint;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -168,8 +270,7 @@ export function createModels(ai: AI): Models {
         timeout,
       ]);
       assertOnDevice(result.response.inferenceSource);
-      const parsed = JSON.parse(result.response.text()) as { entities?: RawEntity[] };
-      return Array.isArray(parsed.entities) ? parsed.entities.slice(0, MAX_ENTITIES) : [];
+      return JSON.parse(result.response.text());
     } finally {
       clearTimeout(timer);
     }
@@ -203,13 +304,47 @@ export function createModels(ai: AI): Models {
       // Mask what the patterns and the first pass found, then look again.
       const known = [...detectWithRegex(chunk), ...validateModelEntities(chunk, first)];
       known.push(...expandNameParts(known));
-      try {
-        return [...first, ...(await list(review, redact(chunk, known).redacted))];
-      } catch (err) {
-        // The review pass is a bonus. Losing it must not lose the first pass.
-        console.warn('Review pass failed, keeping the first pass', err);
-        return first;
+      const masked = redact(chunk, known).redacted;
+      const found = [...first];
+      // The second pass is a bonus. Losing it must not lose the first pass.
+      if (PASS2 === 'review' || PASS2 === 'both') {
+        try {
+          found.push(...(await list(review, masked)));
+        } catch (err) {
+          console.warn('Review pass failed, keeping the first pass', err);
+        }
       }
+      if (PASS2 === 'pick' || PASS2 === 'both') {
+        const candidates = [...new Set(findSuspects(masked).map((s) => s.text))].slice(0, MAX_ENTITIES);
+        if (candidates.length) {
+          try {
+            const listed = candidates.map((c) => `- ${c}`).join('\n');
+            found.push(...(await list(picker, `${masked}\n\nList:\n${listed}`, pickSchema(candidates))));
+          } catch (err) {
+            console.warn('Pick pass failed, keeping the first pass', err);
+          }
+        }
+      }
+      if (PASS2 === 'label') {
+        const candidates = [...new Set(findSuspects(masked).map((s) => s.text))].slice(0, MAX_ENTITIES);
+        if (candidates.length) {
+          try {
+            const listed = candidates.map((c, i) => `${i + 1}. ${c}`).join('\n');
+            const labels = (await callJson(
+              labeller,
+              `${masked}\n\nItems:\n${listed}`,
+              labelSchema(candidates.length),
+            )) as Record<string, string>;
+            candidates.forEach((value, i) => {
+              const kind = LABEL_KIND[labels[String(i + 1)] as (typeof LABELS)[number]];
+              if (kind) found.push({ kind, value });
+            });
+          } catch (err) {
+            console.warn('Label pass failed, keeping the first pass', err);
+          }
+        }
+      }
+      return found;
     },
 
     async transcribe(image) {

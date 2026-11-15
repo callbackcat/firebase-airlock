@@ -115,14 +115,14 @@ const DETECTORS: Detector[] = [
     // parties are named this way and the model often leaves them out.
     kind: 'PERSON',
     pattern:
-      /\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof|mr|mrs|ms|miss|dr)\.? ((?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?(?: (?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?){0,3})/gu,
+      /\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof|mr|mrs|ms|miss|dr)\.? ((?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?(?:\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?|\p{Lu}['’]\p{L}{2,}[\p{L}-]*)(?: (?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?(?:\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?|\p{Lu}['’]\p{L}{2,}[\p{L}-]*)){0,3})/gu,
     group: true,
   },
   {
     // "my daughter Ottilie", "your sister Aoife".
     kind: 'PERSON',
     pattern:
-      /\b(?:[Mm]y|[Yy]our|[Hh]is|[Hh]er|[Tt]heir|[Oo]ur) (?:daughter|son|wife|husband|partner|sister|brother|mother|father|mum|dad|child|friend|neighbou?r|carer|girlfriend|boyfriend|aunt|uncle|cousin|niece|nephew|grand(?:mother|father|son|daughter)|flatmate|housemate),? (\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?(?: \p{Lu}[\p{L}-]+)?)/gu,
+      /\b(?:[Mm]y|[Yy]our|[Hh]is|[Hh]er|[Tt]heir|[Oo]ur) (?:daughter|son|wife|husband|partner|sister|brother|mother|father|mum|dad|child|friend|neighbou?r|carer|girlfriend|boyfriend|aunt|uncle|cousin|niece|nephew|grand(?:mother|father|son|daughter)|flatmate|housemate),? ((?:\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?|\p{Lu}['’]\p{L}{2,}[\p{L}-]*)(?: \p{Lu}[\p{L}-]+)?)/gu,
     group: true,
   },
   {

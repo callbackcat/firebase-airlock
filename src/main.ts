@@ -41,6 +41,10 @@ const state = {
   modelUsed: false,
   acknowledged: false,
   scrubMs: 0,
+  /** How long the fixed patterns took. They are shown before the model is done. */
+  patternMs: 0,
+  /** True while the on-device model is still reading a letter already on screen. */
+  pending: false,
   redaction: null as Redaction | null,
 };
 
@@ -101,28 +105,50 @@ async function scrub(): Promise<void> {
   }
   scrubBtn.disabled = true;
   try {
-    await ensureOnDevice();
-    scrubNote.textContent = 'Scrubbing…';
+    // 1. Fixed patterns. They take a few milliseconds, so the reader sees
+    //    most of the result at once instead of a blank panel.
     const started = performance.now();
-    const extract = state.onDevice === 'ready' ? state.models?.extract : undefined;
-    const result = await detect(text, extract);
-    state.scrubMs = Math.round(performance.now() - started);
+    const quick = await detect(text);
+    state.patternMs = Math.round(performance.now() - started);
     state.source = text;
-    state.all = result.entities;
+    state.all = quick.entities;
     state.excluded.clear();
-    state.modelUsed = result.modelUsed;
+    state.modelUsed = false;
     state.acknowledged = false;
-    if (result.modelError) {
-      console.warn('On-device extraction failed', result.modelError);
+    state.pending = true;
+    scrubNote.textContent = `Patterns applied in ${state.patternMs} ms. The on-device model is still reading…`;
+    recompute();
+
+    // 2. The on-device model. Its finds are added when they arrive. Sending is
+    //    held back until then.
+    await ensureOnDevice();
+    const extract = state.onDevice === 'ready' ? state.models?.extract : undefined;
+    let modelError: string | undefined;
+    if (extract) {
+      const result = await detect(text, extract);
+      modelError = result.modelError;
+      if (result.modelUsed) {
+        // Keep anything hidden by hand while the model was running.
+        const manual = state.all.filter((e) => e.source === 'manual');
+        state.all = [...result.entities, ...manual];
+        state.modelUsed = true;
+      }
+    }
+    state.scrubMs = Math.round(performance.now() - started);
+    state.pending = false;
+    if (modelError) {
+      console.warn('On-device extraction failed', modelError);
       state.onDevice = 'unavailable';
       renderStatus();
     }
-    scrubNote.textContent = result.modelUsed
-      ? `Scrubbed on device in ${state.scrubMs} ms.`
-      : `Scrubbed with patterns only in ${state.scrubMs} ms.`;
+    scrubNote.textContent = state.modelUsed
+      ? `Scrubbed on device in ${state.scrubMs} ms (patterns shown after ${state.patternMs} ms).`
+      : `Scrubbed with patterns only in ${state.patternMs} ms.`;
     recompute();
   } finally {
+    state.pending = false;
     scrubBtn.disabled = false;
+    updateSend();
   }
 }
 
@@ -257,7 +283,7 @@ function renderEntities(): void {
 
 function renderAck(): void {
   const host = $('ack');
-  if (state.modelUsed) {
+  if (state.modelUsed || state.pending) {
     host.replaceChildren();
     return;
   }
@@ -281,6 +307,7 @@ function updateSend(): void {
   let reason = '';
   if (!r) reason = '';
   else if (!state.models) reason = 'Add a Firebase config to enable the cloud step (see README).';
+  else if (state.pending) reason = 'The on-device model is still reading. You can review what the patterns found.';
   else if (!state.modelUsed && !state.acknowledged) reason = 'Confirm you have checked the text.';
   sendBtn.disabled = !r || reason !== '';
   sendNote.textContent = reason;
