@@ -21,6 +21,9 @@ console.log('Subject hidden or flagged', stat(runs.map((r) => r.summary.subject.
 console.log('Others hidden or flagged ', stat(runs.map((r) => r.summary.other.reviewRecall)));
 console.log('Review marks/letter', runs.map((r) => r.summary.suspects.perLetter.toFixed(1)).join(', '), ' per 100 words', runs.map((r) => r.summary.suspects.per100Words.toFixed(1)).join(', '));
 console.log('Useful facts kept', stat(runs.map((r) => r.summary.keep.rate)));
+if (runs[0].summary.medical?.total) console.log('Medical terms kept', stat(runs.map((r) => r.summary.medical.rate)), ` (${runs[0].summary.medical.total} terms)`);
+console.log('On-device calls  ', runs.map((r) => r.summary.calls ?? '?').join(', '));
+if (runs[0].docs.length <= 4) for (const d of runs[0].docs) console.log(`  ${d.id.padEnd(28)} ms ${runs.map((r) => r.docs.find((x) => x.id === d.id).ms).join(', ')}  calls ${runs.map((r) => r.docs.find((x) => x.id === d.id).calls).join(', ')}`);
 console.log('Median ms/letter ', runs.map((r) => r.summary.medianMs).join(', '));
 console.log('Verdicts         ', runs.map((r) => r.verdict.level).join(', '));
 

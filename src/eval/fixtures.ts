@@ -25,6 +25,8 @@ export interface Fixture {
   text: string;
   gold: Gold[];
   keep: string[];
+  /** The useful facts that are medical terms. Counted on their own. */
+  medical?: string[];
 }
 
 const g = (kind: EntityKind, value: string, who: 'subject' | 'other' = 'subject'): Gold => ({

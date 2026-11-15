@@ -345,6 +345,10 @@ function assertOnDevice(source: string | undefined): void {
   }
 }
 
+let calls = 0;
+/** How many on-device calls have been started since the page loaded. For the benchmark. */
+export const onDeviceCalls = (): number => calls;
+
 export function createModels(ai: AI): Models {
   const lister = (system: string) => {
     const promptOptions: PromptOptions = { responseConstraint: entitySchema };
@@ -393,6 +397,7 @@ export function createModels(ai: AI): Models {
   ): Promise<unknown> => {
     // A small model sometimes loops until it hits its output limit, which
     // takes minutes and holds up every call queued behind it. Cancel it.
+    calls++;
     const abort = new AbortController();
     target.promptOptions.signal = abort.signal;
     target.promptOptions.responseConstraint = constraint;

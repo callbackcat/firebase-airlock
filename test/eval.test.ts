@@ -6,9 +6,11 @@ import { HOLDOUT2 } from '../src/eval/holdout2';
 import { HOLDOUT3 } from '../src/eval/holdout3';
 import { HOLDOUT4 } from '../src/eval/holdout4';
 import { HOLDOUT5 } from '../src/eval/holdout5';
+import { HOLDOUT6 } from '../src/eval/holdout6';
+import { LONG_CLEAN, LONG_DEV } from '../src/eval/long';
 import { scoreDoc, summarise, verdict } from '../src/eval/score';
 
-const ALL = [...FIXTURES, ...HOLDOUT, ...HOLDOUT2, ...HOLDOUT3, ...HOLDOUT4, ...HOLDOUT5];
+const ALL = [...FIXTURES, ...HOLDOUT, ...HOLDOUT2, ...HOLDOUT3, ...HOLDOUT4, ...HOLDOUT5, ...HOLDOUT6, ...LONG_DEV, ...LONG_CLEAN];
 
 describe('fixtures', () => {
   it('has unique ids', () => {

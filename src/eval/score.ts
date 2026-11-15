@@ -1,6 +1,7 @@
 import { findLeaks, redact, type Detection, type EntityKind } from '../airlock';
 import { findSuspects, type Suspect } from '../suspects';
 import type { Fixture, Gold } from './fixtures';
+import { MEDICAL_KEEP } from './medical';
 
 /** True when `value` can no longer be read in `text`. */
 const hidden = (text: string, value: string) => findLeaks(text, { x: value }).length === 0;
@@ -24,7 +25,9 @@ export interface DocScore {
   modelSpansRaw: number;
   modelSpansUsed: number;
   items: ItemScore[];
-  keep: Array<{ value: string; kept: boolean }>;
+  keep: Array<{ value: string; kept: boolean; medical: boolean }>;
+  /** On-device calls made for this letter. */
+  calls?: number;
   /** How many spans the review step marks in the outgoing text. */
   suspects: number;
   /** Words in the outgoing text, to put the number of suspects in proportion. */
@@ -58,7 +61,11 @@ export function scoreDoc(
       hidden: hidden(full, item.value),
       flagged: !hidden(full, item.value) && coveredBy(full, item.value, suspects),
     })),
-    keep: fixture.keep.map((value) => ({ value, kept: !hidden(full, value) })),
+    keep: fixture.keep.map((value) => ({
+      value,
+      kept: !hidden(full, value),
+      medical: fixture.medical ? fixture.medical.includes(value) : MEDICAL_KEEP.has(value),
+    })),
     suspects: suspects.length,
     words: full.split(/\s+/).filter(Boolean).length,
   };
@@ -102,6 +109,10 @@ export interface Summary {
   byKind: Partial<Record<EntityKind, Tally>>;
   /** Share of useful facts that survived redaction. */
   keep: { total: number; kept: number; rate: number | null };
+  /** The same for medicines, conditions, tests, procedures and doses only. */
+  medical: { total: number; kept: number; rate: number | null };
+  /** On-device calls, all letters together. */
+  calls: number;
   model: { spansRaw: number; spansUsed: number };
   medianMs: number;
   /** Review marks per letter, and per 100 words, on average. */
@@ -132,6 +143,8 @@ export function summarise(docs: DocScore[]): Summary {
   }
   const times = docs.map((d) => d.ms).sort((a, b) => a - b);
   const kept = keep.filter((k) => k.kept).length;
+  const medical = keep.filter((k) => k.medical);
+  const medicalKept = medical.filter((k) => k.kept).length;
 
   return {
     docs: docs.length,
@@ -141,6 +154,8 @@ export function summarise(docs: DocScore[]): Summary {
     other: tally(items.filter((i) => i.who === 'other')),
     byKind,
     keep: { total: keep.length, kept, rate: keep.length ? kept / keep.length : null },
+    medical: { total: medical.length, kept: medicalKept, rate: medical.length ? medicalKept / medical.length : null },
+    calls: docs.reduce((n, d) => n + (d.calls ?? 0), 0),
     model: {
       spansRaw: docs.reduce((n, d) => n + d.modelSpansRaw, 0),
       spansUsed: docs.reduce((n, d) => n + d.modelSpansUsed, 0),

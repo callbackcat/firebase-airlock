@@ -1,12 +1,14 @@
 import { detect, type Extractor } from '../airlock';
 import { initFirebase } from '../firebase';
-import { createModels, type Models } from '../models';
+import { createModels, onDeviceCalls, type Models } from '../models';
 import { FIXTURES as MAIN_SET } from './fixtures';
 import { HOLDOUT } from './holdout';
 import { HOLDOUT2 } from './holdout2';
 import { HOLDOUT3 } from './holdout3';
 import { HOLDOUT4 } from './holdout4';
 import { HOLDOUT5 } from './holdout5';
+import { HOLDOUT6 } from './holdout6';
+import { LONG_CLEAN, LONG_DEV } from './long';
 import { scoreDoc, summarise, verdict, type DocScore, type Summary } from './score';
 
 /**
@@ -36,7 +38,7 @@ declare global {
 }
 
 // ?set=holdout runs the letters that were never used for tuning.
-const SETS: Record<string, typeof MAIN_SET> = { holdout: HOLDOUT, holdout2: HOLDOUT2, holdout3: HOLDOUT3, holdout4: HOLDOUT4, holdout5: HOLDOUT5 };
+const SETS: Record<string, typeof MAIN_SET> = { holdout: HOLDOUT, holdout2: HOLDOUT2, holdout3: HOLDOUT3, holdout4: HOLDOUT4, holdout5: HOLDOUT5, holdout6: HOLDOUT6, 'long-dev': LONG_DEV, 'long-clean': LONG_CLEAN };
 const FIXTURES = SETS[new URLSearchParams(location.search).get('set') ?? ''] ?? MAIN_SET;
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -141,8 +143,11 @@ async function run(): Promise<void> {
           }
         : undefined;
     const started = performance.now();
+    const callsBefore = onDeviceCalls();
     const detection = await detect(fixture.text, counting);
-    docs.push(scoreDoc(fixture, detection, Math.round(performance.now() - started), raw));
+    const scored = scoreDoc(fixture, detection, Math.round(performance.now() - started), raw);
+    scored.calls = onDeviceCalls() - callsBefore;
+    docs.push(scored);
   }
 
   const summary = summarise(docs);
