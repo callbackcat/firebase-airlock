@@ -1,7 +1,8 @@
 import { detect, type Extractor } from '../airlock';
 import { initFirebase } from '../firebase';
 import { createModels, type Models } from '../models';
-import { FIXTURES } from './fixtures';
+import { FIXTURES as MAIN_SET } from './fixtures';
+import { HOLDOUT } from './holdout';
 import { scoreDoc, summarise, verdict, type DocScore, type Summary } from './score';
 
 /**
@@ -29,6 +30,9 @@ declare global {
     __airlockEval?: EvalReport;
   }
 }
+
+// ?set=holdout runs the letters that were never used for tuning.
+const FIXTURES = new URLSearchParams(location.search).get('set') === 'holdout' ? HOLDOUT : MAIN_SET;
 
 const $ = (id: string) => document.getElementById(id)!;
 const runBtn = $('run') as HTMLButtonElement;

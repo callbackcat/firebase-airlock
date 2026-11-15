@@ -9,6 +9,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { promptApiState, ROOT, startChrome, startDevServer } from './chrome.mjs';
 
+const SET = process.env.EVAL_SET === 'holdout' ? '?set=holdout' : '';
 const TIMEOUT_MIN = Number(process.env.EVAL_TIMEOUT_MIN ?? 45);
 const pct = (n) => (n === null || n === undefined ? 'n/a' : `${(n * 100).toFixed(1)}%`);
 
@@ -18,14 +19,14 @@ let code = 3;
 try {
   server = await startDevServer();
   chrome = await startChrome();
-  console.log(`Chrome ${chrome.version}\nProfile ${chrome.profile}\nPage ${server.url}eval.html\n`);
+  console.log(`Chrome ${chrome.version}\nProfile ${chrome.profile}\nPage ${server.url}eval.html${SET}\n`);
 
   const page = await chrome.browser.newPage();
   const consoleErrors = [];
   page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
   page.on('pageerror', (e) => consoleErrors.push(String(e)));
 
-  await page.goto(`${server.url}eval.html`, { waitUntil: 'networkidle0' });
+  await page.goto(`${server.url}eval.html${SET}`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('#run');
   console.log(await page.$eval('#env', (n) => n.textContent));
   console.log(await promptApiState(page), '\n');
