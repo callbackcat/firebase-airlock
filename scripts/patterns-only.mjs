@@ -12,6 +12,8 @@ const sets = {
   holdout3: (await s.ssrLoadModule('/src/eval/holdout3.ts')).HOLDOUT3,
   holdout4: (await s.ssrLoadModule('/src/eval/holdout4.ts')).HOLDOUT4,
   holdout5: (await s.ssrLoadModule('/src/eval/holdout5.ts')).HOLDOUT5,
+  // holdout6 and long-clean are left out on purpose: they are measured once, with the model.
+  'long-dev': (await s.ssrLoadModule('/src/eval/long.ts')).LONG_DEV,
 };
 const p = (x) => `${(x * 100).toFixed(1)}%`;
 for (const [name, set] of Object.entries(sets)) {

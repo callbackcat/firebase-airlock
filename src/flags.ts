@@ -12,6 +12,7 @@
  *   o4  a second vote on name-like items that were labelled not personal
  *   w1  in chat-like text, speaker labels and names after a greeting are marked
  *   w2  postcodes beyond the UK: Canada, Ireland, US ZIP
+ *   adj a capitalised word directly before a hidden person is marked, even at the start of a sentence
  *   yesno  the model answers PERSONAL or NOT instead of six labels
  */
 export const DEFAULT_FLAGS = '';

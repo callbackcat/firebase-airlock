@@ -23,20 +23,33 @@ export function notAName(text: string, value: string): boolean {
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   let at = 0;
   let everyUseHasDose = true;
+  let everyUseOpens = true;
   let uses = 0;
   for (;;) {
     at = text.indexOf(value, at);
     if (at < 0) break;
     uses++;
     if (!DOSE.test(text.slice(at + value.length, at + value.length + 24))) everyUseHasDose = false;
+    // Next to a hidden person, or to another capitalised word, it is part of a name.
+    if (NEXT_TO_NAME.test(text.slice(at + value.length, at + value.length + 12)) || /\[PERSON_\d+\] $/.test(text.slice(Math.max(0, at - 14), at))) return false;
+    // Does this use open a line or a sentence? Then the capital says nothing.
+    const before = text.slice(0, at);
+    const trimmed = before.trimEnd();
+    if (!(trimmed === '' || /[.!?:;]$/.test(trimmed) || before.slice(trimmed.length).includes('\n'))) everyUseOpens = false;
     at += value.length;
   }
   if (uses && everyUseHasDose) return true;
+  // A name is written with a capital in the middle of a sentence too. A word
+  // that only has one where a sentence starts, and is lower case elsewhere, is
+  // an ordinary word or a medicine.
+  if (!everyUseOpens) return false;
   return new RegExp(`(?<![\\p{L}\\p{N}'’-])${escaped.toLowerCase()}(?![\\p{L}\\p{N}'’-])`, 'u').test(text);
 }
 
+const NEXT_TO_NAME = /^ (?:\[PERSON_\d+\]|\p{Lu}\p{Ll})/u;
+
 const NOT_SPEAKER = new Set('me you i we to from re subject note ps fyi ok yes no date time'.split(' '));
-const GREETING = /(?<![\p{L}])(?:hi|hey|hello|hiya|thanks|thank you|cheers|ta|sorry|ok|okay|called|named|auntie|aunty|uncle|nurse|sister|ask for|its|it's|with|and) (\p{Ll}{3,})(?![\p{L}])/gu;
+const GREETING = /(?<![\p{L}])(?:called|named|auntie|aunty|uncle|nurse|sister|ask for|my (?:lad|son|daughter|wife|husband|partner|mate|brother|sister|friend|boss|neighbou?r|mum|dad)) (\p{Ll}{3,})(?![\p{L}])/gu;
 
 export interface Suspect {
   start: number;
@@ -87,7 +100,9 @@ export function findSuspects(outgoing: string): Suspect[] {
       const label = m[1].trim();
       speakers.set(label.toLowerCase(), (speakers.get(label.toLowerCase()) ?? 0) + 1);
     }
-    const chatLike = [...speakers.values()].reduce((a, b) => a + b, 0) >= 3;
+    // A form has labels too ("Patient:", "Address:"), each once. A chat repeats its speakers.
+    for (const [label, n] of speakers) if (n < 2) speakers.delete(label);
+    const chatLike = [...speakers.values()].reduce((a, b) => a + b, 0) >= 4;
     if (chatLike) {
       const words = new Set<string>();
       for (const label of speakers.keys()) {
@@ -96,8 +111,7 @@ export function findSuspects(outgoing: string): Suspect[] {
       // Names the speakers mention: "nurse called bisi", "thanks dele".
       for (const m of text.matchAll(GREETING)) {
         if (words.has(m[1])) continue;
-        // Only when the word is not used widely: a name turns up a few times, "the" does not.
-        if (!ORDINARY.has(m[1]) && /^(?:called|named|auntie|aunty|uncle|nurse|sister|ask for)/.test(m[0])) words.add(m[1]);
+        if (!ORDINARY.has(m[1]) && !NOT_SPEAKER.has(m[1])) words.add(m[1]);
       }
       for (const w of words) {
         const re = new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'giu');
@@ -126,7 +140,9 @@ export function findSuspects(outgoing: string): Suspect[] {
     const atStart = before === '' || /[.!?:;]$/.test(before) || head.slice(before.length).includes('\n');
     const after = text.slice(m.index + word.length);
     const nextWord = /^[ \t]+(\S)/.exec(after)?.[1];
-    if (atStart && isLower(nextWord) && word !== word.toUpperCase()) {
+    // "Lucinda [PERSON_4] saw the collision": the first name of someone whose surname is already hidden.
+    const besideName = on('adj') && /^ \[PERSON_\d+\]/.test(outgoing.slice(m.index + word.length, m.index + word.length + 14));
+    if (atStart && isLower(nextWord) && word !== word.toUpperCase() && !besideName) {
       openers.push({ start: m.index, end: m.index + word.length, text: word, reason: 'name' });
       continue;
     }
