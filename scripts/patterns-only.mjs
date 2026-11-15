@@ -10,6 +10,7 @@ const sets = {
   holdout: (await s.ssrLoadModule('/src/eval/holdout.ts')).HOLDOUT,
   holdout2: (await s.ssrLoadModule('/src/eval/holdout2.ts')).HOLDOUT2,
   holdout3: (await s.ssrLoadModule('/src/eval/holdout3.ts')).HOLDOUT3,
+  holdout4: (await s.ssrLoadModule('/src/eval/holdout4.ts')).HOLDOUT4,
 };
 const p = (x) => `${(x * 100).toFixed(1)}%`;
 for (const [name, set] of Object.entries(sets)) {

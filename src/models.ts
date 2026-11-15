@@ -6,6 +6,7 @@ import {
   type GenerativeModel,
 } from 'firebase/ai';
 import {
+  ORG_WORD,
   detectWithRegex,
   expandNameParts,
   redact,
@@ -28,8 +29,15 @@ import { findSuspects } from './suspects';
 const MODEL_KINDS = ['PERSON', 'ADDRESS', 'EMAIL', 'PHONE', 'DOB', 'ID_NUMBER', 'ACCOUNT', 'OTHER'];
 
 const MAX_ENTITIES = 40;
-/** One on-device call may take this long before it is cancelled. */
-const CALL_TIMEOUT_MS = 15_000;
+// How long one on-device call may take before it is cancelled. The limit
+// follows the machine: five times its usual call, never under 15 s (a fast
+// laptop answers in about 3 s) and never over 2 minutes. Until one call has
+// finished there is nothing to go on, so the first is given a minute.
+const MIN_TIMEOUT_MS = 15_000;
+const MAX_TIMEOUT_MS = 120_000;
+const FIRST_TIMEOUT_MS = 60_000;
+/** A first pass slower than this means a slow machine: skip the second pass. */
+const SLOW_FIRST_PASS_MS = 20_000;
 
 // Plain JSON Schema, passed to Chrome as the output constraint. The caps are
 // there because a small model sometimes runs away: maxItems stops an endless
@@ -204,6 +212,8 @@ export const TASKS = {
 export type Task = keyof typeof TASKS;
 
 export interface Models {
+  /** True when the last scrub skipped its second pass because this device is slow. */
+  secondPassSkipped(): boolean;
   /** Call from a click handler. Resolves when the on-device model is usable. */
   prepareOnDevice(onProgress?: (fraction: number) => void): Promise<void>;
   extract: Extractor;
@@ -247,6 +257,16 @@ export function createModels(ai: AI): Models {
     return Array.isArray(parsed.entities) ? parsed.entities.slice(0, MAX_ENTITIES) : [];
   };
 
+  // Durations of calls that finished, newest last. The time limit follows them.
+  const durations: number[] = [];
+  const timeLimit = (): number => {
+    if (!durations.length) return FIRST_TIMEOUT_MS;
+    const sorted = [...durations].sort((a, b) => a - b);
+    const usual = sorted[Math.floor(sorted.length / 2)];
+    return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, usual * 5));
+  };
+  let skippedSecondPass = false;
+
   const callJson = async (
     target: ReturnType<typeof lister>,
     text: string,
@@ -258,11 +278,13 @@ export function createModels(ai: AI): Models {
     target.promptOptions.signal = abort.signal;
     target.promptOptions.responseConstraint = constraint;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const limitMs = timeLimit();
+    const started = performance.now();
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         abort.abort();
-        reject(new Error(`On-device call took longer than ${CALL_TIMEOUT_MS / 1000} s.`));
-      }, CALL_TIMEOUT_MS);
+        reject(new Error(`On-device call took longer than ${Math.round(limitMs / 1000)} s.`));
+      }, limitMs);
     });
     try {
       const result = await Promise.race([
@@ -270,7 +292,10 @@ export function createModels(ai: AI): Models {
         timeout,
       ]);
       assertOnDevice(result.response.inferenceSource);
-      return JSON.parse(result.response.text());
+      const parsed: unknown = JSON.parse(result.response.text());
+      durations.push(performance.now() - started);
+      if (durations.length > 20) durations.shift();
+      return parsed;
     } finally {
       clearTimeout(timer);
     }
@@ -288,12 +313,15 @@ export function createModels(ai: AI): Models {
   });
 
   return {
+    secondPassSkipped: () => skippedSecondPass,
+
     async prepareOnDevice(onProgress) {
       await scrub.model.initializeDeviceModel(onProgress);
     },
 
     async extract(chunk) {
       // First pass: one retry, because a failed call is usually a one-off.
+      const firstStarted = performance.now();
       let first: RawEntity[];
       try {
         first = await list(scrub, chunk);
@@ -304,8 +332,12 @@ export function createModels(ai: AI): Models {
       // Mask what the patterns and the first pass found, then look again.
       const known = [...detectWithRegex(chunk), ...validateModelEntities(chunk, first)];
       known.push(...expandNameParts(known));
-      const masked = redact(chunk, known).redacted;
       const found = [...first];
+      // On a slow machine one pass is already a long wait. Stop here; the
+      // review marks still show the reader what is left.
+      skippedSecondPass = performance.now() - firstStarted > SLOW_FIRST_PASS_MS;
+      if (skippedSecondPass) return found;
+      const masked = redact(chunk, known).redacted;
       // The second pass is a bonus. Losing it must not lose the first pass.
       if (PASS2 === 'review' || PASS2 === 'both') {
         try {
@@ -337,7 +369,8 @@ export function createModels(ai: AI): Models {
             )) as Record<string, string>;
             candidates.forEach((value, i) => {
               const kind = LABEL_KIND[labels[String(i + 1)] as (typeof LABELS)[number]];
-              if (kind) found.push({ kind, value });
+              // A small model calls some organisations people. The name gives those away.
+              if (kind && !ORG_WORD.test(value)) found.push({ kind, value });
             });
           } catch (err) {
             console.warn('Label pass failed, keeping the first pass', err);

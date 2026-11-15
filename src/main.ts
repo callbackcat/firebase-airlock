@@ -142,7 +142,7 @@ async function scrub(): Promise<void> {
       renderStatus();
     }
     scrubNote.textContent = state.modelUsed
-      ? `Scrubbed on device in ${state.scrubMs} ms (patterns shown after ${state.patternMs} ms).`
+      ? `Scrubbed on device in ${state.scrubMs} ms (patterns shown after ${state.patternMs} ms).${state.models?.secondPassSkipped() ? ' This device is slow, so the second check was skipped: look at the underlined text.' : ''}`
       : `Scrubbed with patterns only in ${state.patternMs} ms.`;
     recompute();
   } finally {

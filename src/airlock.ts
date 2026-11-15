@@ -82,8 +82,8 @@ const luhn = (raw: string): boolean => {
 };
 
 // A line under a sign-off holding one of these is an organisation, not a person.
-const ORG_WORD =
-  /\b(?:Practice|Clinic|Council|Team|Department|Services?|Ltd|Limited|LLP|Lettings|Surgery|Centre|Center|Bank|School|Office|Group|Solicitors|Insurance|Mutual|Energy|University|Hospital|Trust|Agency|Company|Support|Customer|Payroll|Accounts|Recovery|Revenue|Management|Association|Society|Pharmacy|Housing|Officer|Manager|Director|Adviser|Advisor|Representative)\b/i;
+export const ORG_WORD =
+  /\b(?:Heating|Health|Plan|Payment|Tax|Freight|Biotech|Talent|Advice|Regulations?|Ombudsman|Register|Fund|Benefit|Allowance|Credit|Authority|Commission|Institute|College|Church|Club|Partners|Associates|Logistics|Systems|Solutions|Foods?|Motors|Bakery Ltd|Practice|Clinic|Council|Team|Department|Services?|Ltd|Limited|LLP|Lettings|Surgery|Centre|Center|Bank|School|Office|Group|Solicitors|Insurance|Mutual|Energy|University|Hospital|Trust|Agency|Company|Support|Customer|Payroll|Accounts|Recovery|Revenue|Management|Association|Society|Pharmacy|Housing|Officer|Manager|Director|Adviser|Advisor|Representative)\b/i;
 
 // UK-leaning on purpose: the demo documents are UK letters. Add locales here.
 const DETECTORS: Detector[] = [
