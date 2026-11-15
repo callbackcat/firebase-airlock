@@ -62,6 +62,8 @@ interface Detector {
   /** Use capture group 1 as the value (for patterns that need context). */
   group?: boolean;
   accept?: (value: string) => boolean;
+  /** Only runs when this switch is on. See flags.ts. */
+  flag?: string;
 }
 
 const luhn = (raw: string): boolean => {
@@ -80,6 +82,8 @@ const luhn = (raw: string): boolean => {
   }
   return sum % 10 === 0;
 };
+
+import { on } from './flags';
 
 // A line under a sign-off holding one of these is an organisation, not a person.
 export const ORG_WORD =
@@ -155,6 +159,20 @@ const DETECTORS: Detector[] = [
     group: true,
     accept: (v) => !ORG_WORD.test(v) && !NOT_A_NAME_PART.has(v.toLowerCase()),
   },
+  {
+    // A role or a phrase that introduces a person: "Staff Nurse Bronagh
+    // Tierney", "seen by K. Adeyemo", "cc Rhodri Maddocks".
+    flag: 'o1',
+    kind: 'PERSON',
+    pattern:
+      /(?:\b(?:Staff Nurse|Nurse Practitioner|Practice Nurse|Nurse|Sister|Matron|Midwife|Constable|Sergeant|Inspector|Councillor|Judge|Professor|Pharmacist|Physiotherapist|Surveyor|Engineer)|\b(?:[Ss]een by|[Ss]igned(?: by)?|[Rr]eviewed by|[Aa]ssessed by|[Rr]eferred by|[Cc]ompleted by|[Tt]aken by|[Cc]haired by|[Aa]pproved by|[Dd]rawn by|[Dd]ictated by|[Ll]ogged by|[Cc]c|CC|[Oo]n behalf of)):?,? ((?:\p{Lu}\. ?)?\p{Lu}\p{Ll}[\p{L}'’-]+(?: \p{Lu}\p{Ll}[\p{L}'’-]+){0,2})/gu,
+    group: true,
+    accept: (v) => !ORG_WORD.test(v) && !v.split(' ').some((w) => NOT_A_NAME_PART.has(w.toLowerCase())),
+  },
+  // Postcodes beyond the UK: Canada, Ireland (Eircode) and a US ZIP after a state.
+  { flag: 'w2', kind: 'POSTCODE', pattern: /\b[ABCEGHJ-NPRSTVXY]\d[A-Z] ?\d[A-Z]\d\b/g },
+  { flag: 'w2', kind: 'POSTCODE', pattern: /\b(?:[AC-FHKNPRTV-Y]\d{2}|D6W) ?[0-9AC-FHKNPRTV-Y]{4}\b/g },
+  { flag: 'w2', kind: 'POSTCODE', pattern: /\b[A-Z]{2} (\d{5}(?:-\d{4})?)\b/g, group: true },
   // UK vehicle registration, current format.
   { kind: 'OTHER', pattern: /\b[A-Z]{2}\d{2} ?[A-Z]{3}\b/g },
   {
@@ -186,6 +204,7 @@ const DETECTORS: Detector[] = [
 export function detectWithRegex(text: string): Entity[] {
   const found: Entity[] = [];
   for (const d of DETECTORS) {
+    if (d.flag && !on(d.flag)) continue;
     for (const m of text.matchAll(d.pattern)) {
       const value = (d.group ? m[1] : m[0])?.trim();
       if (!value) continue;
@@ -273,6 +292,14 @@ export function expandNameParts(entities: Entity[]): Entity[] {
       if (TITLES.has(key) || NOT_A_NAME_PART.has(key)) continue;
       if (normalise(part) === normalise(e.value)) continue;
       out.push({ kind: 'PERSON', value: part, source: e.source, derived: true });
+      // "Zubiri-Maddox" is also written "Zubiri" and "Maddox".
+      if (on('o2') && part.includes('-')) {
+        for (const half of part.split('-')) {
+          if (half.length >= 4 && /^\p{Lu}/u.test(half) && !NOT_A_NAME_PART.has(half.toLowerCase())) {
+            out.push({ kind: 'PERSON', value: half, source: e.source, derived: true });
+          }
+        }
+      }
     }
   }
   return out;

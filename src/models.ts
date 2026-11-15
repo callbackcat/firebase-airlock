@@ -15,7 +15,8 @@ import {
   type Extractor,
   type RawEntity,
 } from './airlock';
-import { findSuspects } from './suspects';
+import { on } from './flags';
+import { findSuspects, notAName } from './suspects';
 
 /**
  * Two model instances, two rules:
@@ -152,12 +153,55 @@ OTHER: anything else, such as a heading, job title, medicine, day, month,
   amount, course code or ordinary word.
 Judge each item by how it is used in the document.`;
 
-const LABELS = ['PERSON', 'ADDRESS', 'PERSONAL_NUMBER', 'ORGANISATION', 'PLACE', 'OTHER'] as const;
-const LABEL_KIND: Partial<Record<(typeof LABELS)[number], string>> = {
+const ALL_LABELS = ['PERSON', 'ADDRESS', 'PERSONAL_NUMBER', 'ORGANISATION', 'PLACE', 'MEDICAL', 'OTHER', 'PERSONAL', 'NOT_PERSONAL'] as const;
+const LABELS: ReadonlyArray<(typeof ALL_LABELS)[number]> = on('yesno')
+  ? ['PERSONAL', 'NOT_PERSONAL']
+  : on('m1')
+    ? ['PERSON', 'ADDRESS', 'PERSONAL_NUMBER', 'ORGANISATION', 'PLACE', 'MEDICAL', 'OTHER']
+    : ['PERSON', 'ADDRESS', 'PERSONAL_NUMBER', 'ORGANISATION', 'PLACE', 'OTHER'];
+
+/** The label guide in a prompt, adjusted for the switches that are on. */
+function guide(prompt: string): string {
+  if (on('yesno')) {
+    const start = prompt.indexOf('PERSON: a human');
+    const end = prompt.indexOf('Judge each item');
+    if (start < 0 || end < 0) return prompt;
+    return `${prompt.slice(0, start)}PERSONAL: a human being's name or part of one (staff, relatives and anyone
+  else who is named count), part of where a private person lives, or a
+  reference, account, policy, membership, passport or customer number, a
+  password or a code that belongs to one person.
+NOT_PERSONAL: anything else: an organisation, a place, a medicine, a
+  condition, a heading, a job title, a day, a month, an amount or an
+  ordinary word.
+${prompt.slice(end)}`.replace('exactly one label', 'exactly one of two labels');
+  }
+  if (!on('m1')) return prompt;
+  return prompt.replace(
+    'OTHER: anything else, such as a heading, job title, medicine, day, month,',
+    'MEDICAL: a medicine, a condition or illness, a symptom, a test, a result,\n  a procedure or a dose.\nOTHER: anything else, such as a heading, job title, day, month,',
+  );
+}
+const LABEL_KIND: Partial<Record<(typeof ALL_LABELS)[number], string>> = {
   PERSON: 'PERSON',
   ADDRESS: 'ADDRESS',
   PERSONAL_NUMBER: 'ID_NUMBER',
+  PERSONAL: 'PERSON',
 };
+
+/** What to hide an item as, given its label, or nothing when it stays. */
+function kindFor(label: string | undefined, value: string, text: string): string | undefined {
+  let kind = LABEL_KIND[label as (typeof ALL_LABELS)[number]];
+  if (label === 'PERSONAL' && /\d/.test(value)) kind = 'ID_NUMBER';
+  // Unsure means hide: two or more capitalised words that got "other".
+  if (!kind && on('o3') && label === 'OTHER' && /^\p{Lu}\p{Ll}+(?:[ -]\p{Lu}\p{Ll}+)+$/u.test(value)) kind = 'PERSON';
+  if (!kind || ORG_WORD.test(value)) return undefined;
+  if (on('m2') && kind === 'PERSON' && notAName(text, value)) return undefined;
+  return kind;
+}
+
+/** Items that got a non-personal label but look like a name. Candidates for a second vote. */
+const nameLike = (value: string): boolean =>
+  /^\p{Lu}[\p{L}'’-]+(?: \p{Lu}[\p{L}'’-]+){0,2}$/u.test(value) && !ORG_WORD.test(value);
 
 /** One required label per numbered item: {"1": "PERSON", "2": "ORGANISATION", ...}. */
 export const labelSchema = (count: number) => {
@@ -442,11 +486,11 @@ export function createModels(ai: AI): Models {
   const scrub = lister(SCRUB_SYSTEM);
   const review = lister(REVIEW_SYSTEM);
   const picker = lister(PICK_SYSTEM);
-  const labeller = lister(LABEL_SYSTEM);
+  const labeller = lister(guide(LABEL_SYSTEM));
   const letterer = lister(LETTER_SYSTEM);
   const liner = lister(LINES_SYSTEM);
-  const combiner = lister(COMBINED_SYSTEM);
-  const docLabeller = lister(DOC_LABEL_SYSTEM);
+  const combiner = lister(guide(COMBINED_SYSTEM));
+  const docLabeller = lister(guide(DOC_LABEL_SYSTEM));
   const misser = lister(MISSED_SYSTEM);
 
   const list = async (
@@ -556,6 +600,7 @@ export function createModels(ai: AI): Models {
     const contexts = new Map(items.map((c) => [c, twoContexts(lines, lower, c)]));
 
     const out: RawEntity[] = [];
+    const doubtful: string[] = [];
     const diffs: Array<{ item: string; a: string; b: string }> = [];
     for (let at = 0; at < items.length; at += LABEL_BATCH) {
       const batch = items.slice(at, at + LABEL_BATCH);
@@ -576,9 +621,26 @@ export function createModels(ai: AI): Models {
         labels = await labelWithLines(batch, contexts);
       }
       batch.forEach((value, i) => {
-        const kind = LABEL_KIND[labels[i] as (typeof LABELS)[number]];
-        if (kind && !ORG_WORD.test(value)) out.push({ kind, value });
+        const kind = kindFor(labels[i], value, text);
+        if (kind) out.push({ kind, value });
+        else if (nameLike(value)) doubtful.push(value);
       });
+    }
+    // A second vote on name-like items that were let through, in the reverse
+    // order. Hidden if either vote says person.
+    if (on('o4') && doubtful.length) {
+      for (let at = 0; at < doubtful.length; at += LABEL_BATCH) {
+        const batch = doubtful.slice(at, at + LABEL_BATCH).reverse();
+        try {
+          const labels = await labelWithLines(batch, contexts);
+          batch.forEach((value, i) => {
+            const kind = kindFor(labels[i], value, text);
+            if (kind === 'PERSON') out.push({ kind, value });
+          });
+        } catch (err) {
+          console.warn('Second vote failed, keeping the first', err);
+        }
+      }
     }
     if (PLAN === 'doc-contexts') {
       const w = window as { __airlockLabelDiffs?: unknown[] };
@@ -600,7 +662,7 @@ export function createModels(ai: AI): Models {
         )) as { missed?: unknown[] };
         for (const value of Array.isArray(answer.missed) ? answer.missed : []) {
           const entity = fromMissed(value);
-          if (entity && !checked.includes(entity.value)) out.push(entity);
+          if (entity && !checked.includes(entity.value) && !(on('m2') && notAName(text, entity.value))) out.push(entity);
         }
       } catch (err) {
         console.warn('Missed-list call failed, keeping the labels', err);
@@ -625,15 +687,33 @@ export function createModels(ai: AI): Models {
       labels = answer.labels ?? {};
       for (const value of Array.isArray(answer.missed) ? answer.missed : []) {
         const entity = fromMissed(value);
-        if (entity) out.push(entity);
+        if (entity && !(on('m2') && notAName(masked, entity.value))) out.push(entity);
       }
     } else {
       labels = (await callJson(labeller, input, labelSchema(candidates.length))) as Record<string, string>;
     }
+    const doubtful: string[] = [];
     candidates.forEach((value, i) => {
-      const kind = LABEL_KIND[labels[String(i + 1)] as (typeof LABELS)[number]];
-      if (kind && !ORG_WORD.test(value)) out.push({ kind, value });
+      const kind = kindFor(labels[String(i + 1)], value, masked);
+      if (kind) out.push({ kind, value });
+      else if (nameLike(value)) doubtful.push(value);
     });
+    if (on('o4') && doubtful.length) {
+      try {
+        const again = doubtful.reverse();
+        const second = (await callJson(
+          labeller,
+          `Document:\n\n${masked}\n\nItems:\n${again.map((c, i) => `${i + 1}. ${c}`).join('\n')}`,
+          labelSchema(again.length),
+        )) as Record<string, string>;
+        again.forEach((value, i) => {
+          const kind = kindFor(second[String(i + 1)], value, masked);
+          if (kind === 'PERSON') out.push({ kind, value });
+        });
+      } catch (err) {
+        console.warn('Second vote failed, keeping the first', err);
+      }
+    }
     return out;
   };
 
