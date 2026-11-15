@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Airlock timing probe</title>
+    <link rel="icon" href="data:," />
+    <style>
+      body { margin: 0; padding: 20px 24px 40px; font: 15px/1.55 ui-sans-serif, system-ui, sans-serif; }
+      table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+      th, td { text-align: left; padding: 6px 10px; border: 1px solid #8884; vertical-align: top; }
+      button { font: inherit; font-weight: 600; padding: 8px 14px; }
+    </style>
+  </head>
+  <body>
+    <h1>Airlock timing probe</h1>
+    <p>Measures where the time in one on-device call goes. Fictional tuning letters only. The cloud model is never called.</p>
+    <p><button id="run">Run probe</button> <span id="progress"></span></p>
+    <table>
+      <thead><tr><th>Probe</th><th>What</th><th>Input chars</th><th>Output chars</th><th>First output (ms)</th><th>Total (ms)</th><th>Error</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <script type="module" src="/src/eval/probe.ts"></script>
+  </body>
+</html>

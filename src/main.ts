@@ -77,25 +77,40 @@ function renderStatus(): void {
 // Step 1: scrub on device
 // ---------------------------------------------------------------------------
 
-async function ensureOnDevice(): Promise<void> {
-  if (state.onDevice !== 'unknown') return;
-  if (!state.models) {
-    state.onDevice = 'unavailable';
+let preparing: Promise<void> | null = null;
+
+/** Checks the on-device model once. Callers that arrive meanwhile share the wait. */
+function ensureOnDevice(): Promise<void> {
+  if (state.onDevice !== 'unknown') return Promise.resolve();
+  preparing ??= (async () => {
+    if (!state.models) {
+      state.onDevice = 'unavailable';
+      renderStatus();
+      return;
+    }
+    const before = scrubNote.textContent;
+    try {
+      if (!before) scrubNote.textContent = 'Preparing the on-device model…';
+      await state.models.prepareOnDevice((f) => {
+        scrubNote.textContent = `Downloading the on-device model: ${Math.round(f * 100)}%`;
+      });
+      state.onDevice = 'ready';
+    } catch (err) {
+      console.warn('On-device model unavailable', err);
+      state.onDevice = 'unavailable';
+    }
+    if (/^(Preparing|Downloading) the on-device model/.test(scrubNote.textContent ?? '')) {
+      scrubNote.textContent = before;
+    }
     renderStatus();
-    return;
-  }
-  try {
-    scrubNote.textContent = 'Preparing the on-device model…';
-    await state.models.prepareOnDevice((f) => {
-      scrubNote.textContent = `Downloading the on-device model: ${Math.round(f * 100)}%`;
-    });
-    state.onDevice = 'ready';
-  } catch (err) {
-    console.warn('On-device model unavailable', err);
-    state.onDevice = 'unavailable';
-  }
-  renderStatus();
+  })();
+  return preparing;
 }
+
+// One scrub at a time. A paste that lands while one is running asks for
+// another run once it has finished.
+let scrubbing = false;
+let scrubAgain = false;
 
 async function scrub(): Promise<void> {
   const text = input.value;
@@ -103,6 +118,11 @@ async function scrub(): Promise<void> {
     scrubNote.textContent = 'Paste a document first.';
     return;
   }
+  if (scrubbing) {
+    scrubAgain = true;
+    return;
+  }
+  scrubbing = true;
   scrubBtn.disabled = true;
   try {
     // 1. Fixed patterns. They take a few milliseconds, so the reader sees
@@ -147,9 +167,27 @@ async function scrub(): Promise<void> {
     recompute();
   } finally {
     state.pending = false;
+    scrubbing = false;
     scrubBtn.disabled = false;
     updateSend();
+    if (scrubAgain) {
+      scrubAgain = false;
+      if (input.value !== state.source) void scrub();
+    }
   }
+}
+
+// The first on-device call after the page opens is slow, because Chrome has
+// to load the model into memory. Do that as soon as the person touches the
+// page, so the wait is over before they click Scrub.
+let warmed = false;
+function warmUp(): void {
+  if (warmed) return;
+  warmed = true;
+  void (async () => {
+    await ensureOnDevice();
+    if (state.onDevice === 'ready') await state.models?.warmUp();
+  })();
 }
 
 function recompute(): void {
@@ -392,6 +430,13 @@ $('add').onclick = addManual;
 $<HTMLInputElement>('manual').onkeydown = (e) => {
   if (e.key === 'Enter') addManual();
 };
+// A pasted document is scrubbed straight away: the model works while the
+// person is still looking at what they pasted.
+input.addEventListener('paste', () => setTimeout(() => void scrub(), 0));
+for (const type of ['pointerdown', 'keydown', 'paste'] as const) {
+  document.addEventListener(type, warmUp, { once: true, capture: true });
+}
+
 $('sample').onclick = () => {
   input.value = SAMPLE_LETTER;
   void scrub();

@@ -10,9 +10,11 @@ first run of the day hid 86%, with one run in three below 80%.
 It is still not a guarantee: two details in those eight letters were neither
 hidden nor marked in any run.
 
-This page has three parts: the first run, the
-[second session](#iterations-second-session) and the
-[third session](#iterations-third-session), which has the current numbers.
+This page has four parts: the first run, the
+[second session](#iterations-second-session), the
+[third session](#iterations-third-session) and the
+[fourth session](#speed-fourth-session), which made the scrub faster and has
+the current numbers.
 
 Run on 15 November 2026.
 
@@ -322,3 +324,103 @@ off the GPU, so it is no test.
 - **The test itself.** One machine, one Chrome version, English, 52 fictional
   letters written by the same author as the patterns. A pass on 46 subject
   details is a small sample: one more miss a run would be a fail.
+
+## Speed (fourth session)
+
+Same machine and Chrome. The aim was a faster scrub without losing the pass.
+
+### Where the time in a call goes
+
+`node scripts/run-probe.mjs` streams each on-device call, so it gives the time
+to the first output and the time to the end. Medians of five, GPU:
+
+| Call | Characters in | Characters out | First output | Total |
+|---|---|---|---|---|
+| Very first call after the page opened | 2 | 1 | 9.3 s | 9.3 s |
+| One word in, one character out | 2 | 1 | 1.9 s | 1.9 s |
+| One page in, one character out | 1,177 | 1 | 1.8 s | 1.8 s |
+| 4,000 characters in, one character out | 3,974 | 1 | 2.0 s | 2.0 s |
+| One word in, 400 characters out | 6 | 400 | 1.8 s | 3.1 s |
+| The old first pass (entity list) | 1,177 | 611 | 1.8 s | 4.8 s |
+| The old label pass | 1,219 | 66 | 1.8 s | 2.1 s |
+
+- **Every call costs about 1.8 s before it writes anything, whatever it
+  reads.** Reading a page adds almost nothing.
+- **Writing costs about 3 to 5 ms a character.** The old first pass spent
+  3 s writing its list.
+- Two calls at once take as long as one after the other (3.8 s against 3.9 s).
+- A one-off check with Chrome's API directly (not in the repo) showed that
+  the 1.8 s belongs to a new session: a second prompt on the same session, or
+  on a clone of it, took about 0.1 s. The Firebase SDK opens a new session
+  for every call and offers no way to reuse one, so within the rules the
+  only lever is fewer calls and shorter answers.
+
+### What was tried
+
+Measured on the older sets (`holdout3` unless noted), which are development
+sets now.
+
+| Plan (`VITE_PLAN`) | Subject hidden | Useful facts kept | Median per letter |
+|---|---|---|---|
+| `two`: entity list, then labels (the third session's scrub) | 100% | 99.3% | 5.3 s |
+| `one-letters`: no first pass, one letter per marked item | 83.0% | 91.1% | 1.8 s |
+| `one-lines`: the same, reading only the lines the items sit on | 84.0% | 90.0% | 2.0 s |
+| `two-lines`: entity list, then letters on lines | 95.3% | 91.1% | 4.9 to 6.2 s |
+| `one-json`: no first pass, word labels | 89.9% | 100% | 2.6 to 3.0 s |
+| `one-combined`, missed list of up to 12 objects | 100% | 97.8% | 4.4 to 6.0 s |
+| **`one-combined`, missed list of up to 4 plain strings** | 96.2% | 98.5% | 3.3 to 3.7 s |
+
+- One-letter answers are fast but label badly: names the word labels get
+  right were left readable.
+- Labels alone cannot hide what the marks do not catch (lower-case names).
+- `one-combined` is one call that labels the marked items in words and then
+  lists up to four things the marks missed. With a long list the model fills
+  it with noise and the time goes back up; four plain strings is the version
+  kept. On the other development sets it hid 99.0% (`holdout`), 100%
+  (`holdout2`) and 100% (tuning set), nine runs out of nine a pass.
+- Leaving the schema out of the model's input
+  (`omitResponseConstraintInput`) halved what the old first pass wrote, so it
+  changes what is found. It was not taken further.
+
+### Result on a new clean set
+
+`holdout5` (eight letters, one of them two pages) was written and committed
+before its first run. `holdout4` is no longer clean: the new prompt mentions
+lower-case names, a kind of miss first seen there. Five runs each:
+
+| | `one-combined` (now the default) | `two` (before) |
+|---|---|---|
+| Subject details hidden | **99.6% (98.1 to 100)** | 98.9% (98.1 to 100) |
+| Other people's details hidden | 89.5% (85.7 to 95.2) | 99.0% (95.2 to 100) |
+| Useful facts kept | 97.0% (94.3 to 100) | 98.1% (94.3 to 100) |
+| Runs that pass | 5 of 5 | 5 of 5 |
+| One-page letter | **2.4 to 3.5 s** | 4.3 to 7.0 s |
+| Two-page record (559 words) | **5.7 to 7.0 s** | 9.7 to 20.7 s |
+| Calls cancelled for running too long | 0 | 2 |
+
+End-to-end run with the new default: nine checks passed, no personal detail in
+the cloud request, second scrub of the sample letter 2.5 s (5.4 s before).
+
+### Also changed
+
+- The app makes a one-character call as soon as the person touches the page,
+  so the model is loaded before the first scrub. **Its effect was not
+  measured**: the end-to-end script clicks at once, and its first scrub still
+  took 11.7 s.
+- A pasted document is scrubbed straight away, without a click.
+
+### Open weak points after this session
+
+- **Other people's names are hidden less often with one call** (89.5% against
+  99.0%). On the two-page record a nurse's name was left readable, though
+  underlined, in three runs of five.
+- **Medical terms hidden by mistake on the two-page record**: "Penicillin" in
+  three runs of five, "Type 2 diabetes mellitus" and "Metformin" in two. The
+  two-call scrub did this as well.
+- Lower-case names are still missed ("osman" in a text thread, every run).
+- Speed on CPU was not measured again. Call count halved, so it should be
+  near half the 22 s measured before; that is an estimate.
+- Documents longer than two pages are still untested. Time still grows with
+  each 4,000-character piece, at about 3 s a piece on a GPU.
+- Still one machine, one Chrome version, English, 60 fictional letters by one
+  author.
