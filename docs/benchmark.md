@@ -1,10 +1,15 @@
-# Benchmark: first run against a real on-device model
+# Benchmark: runs against a real on-device model
 
-**Verdict: works with the changes made, as a way to reduce what is shared, not as a guarantee.**
-The hybrid mechanism works end to end on a real machine. On the letters used
-for tuning the scrub now hides 98.5% of the subject's details. On eight new
-letters it had never seen it hides 86.4%, with one run in three below 80%.
-The second number is the honest one, and it is marginal, not a pass.
+**Verdict: works with the changes made, as a way to reduce what is shared, with review as a required step.**
+On eight letters it had never seen, the scrub now hides 94.7% of the subject's
+details on its own (88.7% to 100% over five runs) and marks every detail it
+missed for the reviewer, so hidden-or-flagged is 100%. It keeps 98% of the
+useful facts. A scrub takes about 6 seconds a letter and no longer stalls.
+The first run of the day hid 86%, with one run in three below 80%.
+
+The second half of this page, [Iterations](#iterations-second-session), has the
+current numbers and the open weak points. The first half is the first run, kept
+as the record of where it started.
 
 Run on 15 November 2026.
 
@@ -171,3 +176,83 @@ privacy control. Before building further, try a second on-device pass and
 re-measure on the hold-out set; if the low runs do not go away, make the
 review step harder to skip, for example by highlighting capitalised words and
 numbers the scrub left alone.
+
+## Iterations (second session)
+
+Same machine and Chrome. Each change was measured over three to six runs
+before the next one. Three hold-out sets were used, because a set stops being a
+clean test once its misses have informed a change:
+
+- `holdout` (8 letters): clean for the first run only.
+- `holdout2` (8 letters): clean for iteration 3, then used to find weak points.
+- `holdout3` (8 letters): written before iteration 4 was measured, committed
+  before its first run, never tuned on. **Its numbers are the result.**
+
+### What was weak, what was done, what it did
+
+| # | Weak point found | Change | Measured effect |
+|---|---|---|---|
+| 1 | Some runs the model lists far fewer items (2 to 5 where a letter holds 10 or more); no error, just a short list | A second on-device pass reads the letter with everything already found replaced by placeholders and lists what is still readable | `holdout` 86.4% (77.6 to 91.8) to 89.8% (87.8 to 91.8); others 65% to 81%. Scrub time doubled to about 7.5 s |
+| 2 | Consistent misses: titled staff, signers, relatives, addresses inside sentences, references with unusual labels. Nothing drew the eye to what was left | Patterns for those; `src/suspects.ts` marks capitalised words and long numbers left in the outgoing text; the approval panel underlines each mark and a click hides it | `holdout` 95.4% (89.8 to 98.0) hidden, 100% hidden or flagged. Patterns alone went from 29% to between 61% and 82%, depending on the set |
+| 3 | About 1 run in 8, one on-device call ran away: 165 s until Chrome's output limit, then the whole letter fell back to patterns. My first time limit did not cancel the call, so the calls queued behind it timed out too | The abort signal is now passed to Chrome's `prompt()` (the SDK ignores the one on `generateContent`), 15 s limit, `maxItems` and `maxLength` in the output schema, one retry of the first pass, and a failed review pass keeps the first pass | 25 runs since: no runaway, no failed pass, no letter over 17 s |
+| 4 | Codes with fewer than four digits escaped the marks; unlabelled codes, buildings and streets without a number, and lower-case titles were missed; a marked name was not marked again at the start of a sentence | Marks for mixed letter-and-digit codes; patterns for bare codes, named buildings, unnumbered streets, "tell X" and "speak to X"; lower-case titles | `holdout2` 91.0% to 97.4% (95.8 to 97.9) hidden, 96.5% to 100% hidden or flagged |
+
+### Current numbers
+
+Mean, with the range in brackets.
+
+| Set | Runs | Subject hidden | Subject hidden or flagged | Others hidden | Useful facts kept | Median per letter |
+|---|---|---|---|---|---|---|
+| **`holdout3`, never tuned on** | 5 | **94.7% (88.7 to 100)** | **100%** | 90.5% (89.5 to 94.7) | 98.2% (93.3 to 100) | 5.9 to 7.2 s |
+| `holdout2` | 4 | 97.4% (95.8 to 97.9) | 100% | 100% | 100% | 5.5 to 6.2 s |
+| `holdout` | 3 | 97.3% (93.9 to 100) | 100% | 93.9% (86.4 to 100) | 100% | 7.0 to 9.0 s |
+| Tuning set (12 letters) | 3 | 99.5% (98.5 to 100) | 100% | 100% | 98.7% (98.0 to 100) | 6.9 to 7.3 s |
+
+With no model at all (what a browser without Gemini Nano gets), on `holdout3`:
+71.7% of subject details hidden, 92.5% hidden or flagged, 100% of useful facts
+kept. `node scripts/patterns-only.mjs` prints this for every set.
+
+The review marks cost about 6 underlines a letter (5 to 10 across sets), and
+they include organisation names and headings.
+
+End-to-end run after the changes: nine checks passed, one cloud call, and the
+request body held no personal detail. The street address and the doctor's name
+that reached the cloud in the first run were hidden this time.
+
+### Did the three weak points get solved?
+
+1. **Runs where the model returns almost nothing: mostly.** The worst run on a
+   clean set went from 77.6% to 88.7%. The spread is still 11 points.
+2. **Misses hard to spot: yes, on these letters.** Every detail the scrub left
+   readable was marked, in every run with the model, on all four sets.
+3. **Re-measured on hold-out after each change: yes**, and on a third set that
+   was never tuned on.
+
+### Open weak points, for the next round
+
+- **Hidden without review is 94.7% on unseen letters, just under the 95% bar,
+  and two runs in five were below it.** What is still missed: names in running
+  text with no title or cue ("the late Cuthbert James Noakes", "Lucian and
+  Barnaby", "copied in Jonty"), and a name in an email header in two runs of
+  five.
+- **A known pattern bug, left unfixed so `holdout3` stays clean:** the titled
+  name pattern stops at an apostrophe after one letter, so "Dr Lachlan
+  O'Shaughnessy" hides "Lachlan" and leaves the surname (missed 5 runs in 5,
+  flagged every time).
+- **Lower-case text.** Patterns and marks lean on capital letters. In a web
+  form typed in lower case, the model found the names; without the model they
+  are neither hidden nor marked.
+- **Over-hiding by the model.** An organisation name or a date is hidden now
+  and then (useful facts kept fell to 93% in one run).
+- **Speed.** About 6 s a letter, 15 s for the first one while the model loads.
+  Two calls in sequence, and the SDK builds a new session with the system
+  prompt for every call.
+- **Noise in the marks.** Organisation names and headings are underlined along
+  with real misses.
+- **Coverage of the test itself.** One machine, one Chrome version, English,
+  36 fictional letters, all written by the same author as the patterns.
+
+Ideas not tried yet: have the second pass choose among the marked items
+instead of writing free text, which would remove invented values and runaway
+lists; send only the lines that hold a mark to the second pass, for speed; a
+names list for lower-case text; a vote over two first passes.

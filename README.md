@@ -17,9 +17,9 @@ back on your device.
 Built on [Firebase AI Logic](https://firebase.google.com/docs/ai-logic/hybrid)
 hybrid inference for Web (Chrome).
 
-> Status: proof of concept. It runs end to end on a real on-device model and
-> hides about 86% of personal details on unseen letters, so the approval step
-> matters. See
+> Status: proof of concept. It runs end to end on a real on-device model. On
+> unseen letters it hides about 95% of personal details and underlines what it
+> missed, so the approval step matters. See
 > [What is and is not tested](#what-is-and-is-not-tested).
 
 ## Why hybrid, and why both halves are needed
@@ -118,17 +118,18 @@ Claude Code.
 
 Tested (details in [docs/benchmark.md](docs/benchmark.md)):
 
-- Core logic and benchmark scoring: 41 unit tests.
+- Core logic, patterns, review marks and benchmark scoring: 67 unit tests.
 - The on-device model through Firebase AI Logic, on Chrome 157 on Windows 11:
   the scrub ran on device, including with the page offline.
-- Scrub accuracy, three runs each. On the 12 letters used for tuning it hides
-  98.5% of the subject's details. On 8 new letters it had never seen it hides
-  86.4% (77.6% to 91.8%), keeping 99% of the useful facts. Fixed patterns
-  alone hide 29%.
+- Scrub accuracy on 8 letters that were never used for tuning, five runs: it
+  hides 94.7% of the subject's details (88.7% to 100%), marks every detail it
+  missed for the reviewer, and keeps 98% of the useful facts. With no model,
+  patterns alone hide 72% and mark most of the rest.
+- Reliability: 25 benchmark runs in a row with no failed or stalled on-device
+  call. A scrub takes about 6 seconds a letter.
 - One full run checked at the network level: nine checks passed, no request
-  left the machine during the scrub, and nothing Airlock hid appeared in the
-  cloud request. What the model missed in that run (a street address and a
-  doctor's name) was sent in clear.
+  left the machine during the scrub, and the cloud request held no personal
+  detail.
 
 Not tested yet:
 
