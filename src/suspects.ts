@@ -39,13 +39,16 @@ export function findSuspects(outgoing: string): Suspect[] {
   for (const m of text.matchAll(/(?<![£$€\p{L}\p{N}.,])[A-Z0-9]+(?:[\/-][A-Z0-9]+)*(?![\p{L}\p{N}])/gu)) {
     const v = m[0];
     const digits = v.replace(/\D/g, '').length;
-    if (digits < 4) continue;
+    // Four digits, or a shorter code that mixes capitals and digits ("XK7P", "R7KQ-22XM").
+    const mixed = digits >= 1 && /[A-Z]/.test(v) && v.length >= 4;
+    if (digits < 4 && !mixed) continue;
     if (/^(?:19|20)\d\d$/.test(v) || /^\d{4}\/\d{2}$/.test(v)) continue;
     if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(v) && !/born|birth|d\.?o\.?b/i.test(text.slice(Math.max(0, m.index - 30), m.index))) continue;
     found.push({ start: m.index, end: m.index + v.length, text: v, reason: 'number' });
   }
 
   // Capitalised words.
+  const openers: Suspect[] = [];
   for (const m of text.matchAll(/(?<![\p{L}\p{N}'’])\p{Lu}[\p{L}'’-]*(?![\p{L}\p{N}])/gu)) {
     const word = m[0];
     if (word.length < 2 || ORDINARY.has(word.toLowerCase().replace(/['’]s$/, ''))) continue;
@@ -55,9 +58,16 @@ export function findSuspects(outgoing: string): Suspect[] {
     const atStart = before === '' || /[.!?:;]$/.test(before) || head.slice(before.length).includes('\n');
     const after = text.slice(m.index + word.length);
     const nextWord = /^[ \t]+(\S)/.exec(after)?.[1];
-    if (atStart && isLower(nextWord) && word !== word.toUpperCase()) continue;
+    if (atStart && isLower(nextWord) && word !== word.toUpperCase()) {
+      openers.push({ start: m.index, end: m.index + word.length, text: word, reason: 'name' });
+      continue;
+    }
     found.push({ start: m.index, end: m.index + word.length, text: word, reason: 'name' });
   }
+  // A word marked somewhere else is marked at the start of a sentence too:
+  // "Visited Walter Prendergast" makes "Walter is managing" a mark as well.
+  const marked = new Set(found.filter((s) => s.reason === 'name').map((s) => s.text.toLowerCase()));
+  found.push(...openers.filter((s) => marked.has(s.text.toLowerCase())));
 
   // Join neighbours separated by one space: "Priya Ramanathan", "HM 2209".
   found.sort((a, b) => a.start - b.start);

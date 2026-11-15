@@ -4,6 +4,7 @@ import { createModels, type Models } from '../models';
 import { FIXTURES as MAIN_SET } from './fixtures';
 import { HOLDOUT } from './holdout';
 import { HOLDOUT2 } from './holdout2';
+import { HOLDOUT3 } from './holdout3';
 import { scoreDoc, summarise, verdict, type DocScore, type Summary } from './score';
 
 /**
@@ -33,7 +34,7 @@ declare global {
 }
 
 // ?set=holdout runs the letters that were never used for tuning.
-const SETS: Record<string, typeof MAIN_SET> = { holdout: HOLDOUT, holdout2: HOLDOUT2 };
+const SETS: Record<string, typeof MAIN_SET> = { holdout: HOLDOUT, holdout2: HOLDOUT2, holdout3: HOLDOUT3 };
 const FIXTURES = SETS[new URLSearchParams(location.search).get('set') ?? ''] ?? MAIN_SET;
 
 const $ = (id: string) => document.getElementById(id)!;

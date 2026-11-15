@@ -3,9 +3,10 @@ import { detect, type Extractor } from '../src/airlock';
 import { FIXTURES } from '../src/eval/fixtures';
 import { HOLDOUT } from '../src/eval/holdout';
 import { HOLDOUT2 } from '../src/eval/holdout2';
+import { HOLDOUT3 } from '../src/eval/holdout3';
 import { scoreDoc, summarise, verdict } from '../src/eval/score';
 
-const ALL = [...FIXTURES, ...HOLDOUT, ...HOLDOUT2];
+const ALL = [...FIXTURES, ...HOLDOUT, ...HOLDOUT2, ...HOLDOUT3];
 
 describe('fixtures', () => {
   it('has unique ids', () => {

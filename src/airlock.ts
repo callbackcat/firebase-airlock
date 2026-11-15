@@ -115,7 +115,7 @@ const DETECTORS: Detector[] = [
     // parties are named this way and the model often leaves them out.
     kind: 'PERSON',
     pattern:
-      /\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof)\.? ((?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?(?: (?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?){0,3})/gu,
+      /\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof|mr|mrs|ms|miss|dr)\.? ((?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?(?: (?:(?:ap|de|del|der|di|du|la|le|van|von|bin|al|el) )?(?:[A-Z]\. ?)?\p{Lu}[\p{L}-]+(?:['’]\p{L}{2,})?){0,3})/gu,
     group: true,
   },
   {
@@ -139,6 +139,22 @@ const DETECTORS: Detector[] = [
     pattern:
       /\b(?:(?:Flat|Apartment|Apt|Unit|Room) ?\d+[A-Za-z]?,? )?\d{1,4}[A-Za-z]? (?:\p{Lu}[\p{L}'’.]* ){1,3}(?:Road|Rd|Street|St|Avenue|Ave|Lane|Ln|Close|Drive|Way|Court|Ct|Place|Pl|Crescent|Gardens|Square|Terrace|Row|Yard|Walk|Fold|Lea|Hill|Grove|Mews|Rise|Park|Wharf|View|Green|Parade|Boulevard|Blvd|Bank|Gate|Chase|Croft|Meadows?|Mount|Vale|Villas|Quay|Wynd|Brae)\b/gu,
   },
+  {
+    // A building or street named without a number: "Bramble Cottage",
+    // "Chapel Lane", "The Maltings". Not when it is part of a business name.
+    kind: 'ADDRESS',
+    pattern:
+      /(?<![\p{L}\p{N}])(?:The )?(?:\p{Lu}[\p{L}'’]+ ){1,2}(?:Cottage|House|Lodge|Farm|Villa|Barn|Manor|Hall|Maltings|Bakery|Wharf|Mews|Court|Road|Street|Avenue|Lane|Close|Drive|Crescent|Gardens|Square|Terrace|Row|Yard|Walk|Fold|Grove|Rise|Parade|Croft|Quay)(?: (?:West|East|North|South))?(?![\p{L}\p{N}]| (?:Surgery|Practice|Clinic|School|Hospital|Pharmacy|Centre|Center|Station|Ltd|Limited|Group|Hotel|Dental|Medical|Primary|Academy))/gu,
+    accept: (v) => !ORG_WORD.test(v),
+  },
+  {
+    // "tell Mirek", "ask for Renata Vasquez", "speak to Shirin".
+    kind: 'PERSON',
+    pattern:
+      /\b(?:tell|ask(?: for)?|ring|speak to|spoke to|talk to) (\p{Lu}\p{Ll}[\p{L}'’-]+(?: \p{Lu}\p{Ll}[\p{L}'’-]+)?)/gu,
+    group: true,
+    accept: (v) => !ORG_WORD.test(v) && !NOT_A_NAME_PART.has(v.toLowerCase()),
+  },
   // UK vehicle registration, current format.
   { kind: 'OTHER', pattern: /\b[A-Z]{2}\d{2} ?[A-Z]{3}\b/g },
   {
@@ -151,6 +167,19 @@ const DETECTORS: Detector[] = [
     pattern:
       /(?:date of birth|d\.?o\.?b\.?|born(?: on)?)\s*:?\s*(\d{1,2}(?:[\/.-]\d{1,2}[\/.-]|\s+[A-Za-z]{3,9}\s+)\d{2,4})/gi,
     group: true,
+  },
+  // Last on purpose: when a specific pattern above found the same value, its kind wins.
+  {
+    // A bare code with no label: "PET/7730921/B", "004-88127", "DSP-2611-04481",
+    // or number groups such as "0800 121 4433". Six or more digits in all, or
+    // capitals mixed with four or more digits. Dates and money are left alone.
+    kind: 'ID_NUMBER',
+    pattern: /(?<![£$€\p{L}\p{N}.,\/-])[A-Z0-9]+(?:[\/-][A-Z0-9]+)*(?: \d{3,}[A-Z0-9]*)*(?![\p{L}\p{N}\/-]|[.,]\d)/gu,
+    accept: (v) => {
+      const digits = v.replace(/\D/g, '').length;
+      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(v) || /^\d{4}\/\d{2}$/.test(v)) return false;
+      return digits >= 6 || (digits >= 4 && /[A-Z]/.test(v) && v.length >= 7);
+    },
   },
 ];
 
