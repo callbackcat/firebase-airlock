@@ -39,6 +39,19 @@ names of people (with their title if one is attached), street addresses,
 email addresses, phone numbers, dates of birth, patient/customer/reference
 numbers, bank details, and anything else that points to one specific person.
 Copy each value exactly as written in the document, character for character.
+
+Be thorough about two things that are easy to miss:
+- Every person named anywhere, not only the recipient: the member of staff
+  who signed the letter, a partner, a child, a neighbour, a witness.
+- Every part of an address as its own entry, one per line of the address:
+  the house or building name, the flat number, the street, and any address
+  mentioned inside a sentence.
+
+Example: in a letter addressed to "Mrs Ingrid Solberg, Flat 2, Heron House,
+9 Quarry Bank" and signed "Tobias Lindqvist, Case Officer", list PERSON
+"Mrs Ingrid Solberg", ADDRESS "Flat 2, Heron House", ADDRESS "Heron House",
+ADDRESS "9 Quarry Bank" and PERSON "Tobias Lindqvist".
+
 Do not list organisations, job titles, appointment dates or amounts of money.
 If there is nothing to list, return an empty list.`;
 
