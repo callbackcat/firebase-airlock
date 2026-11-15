@@ -6,7 +6,14 @@ import {
   type AI,
   type GenerativeModel,
 } from 'firebase/ai';
-import type { Extractor, RawEntity } from './airlock';
+import {
+  detectWithRegex,
+  expandNameParts,
+  redact,
+  validateModelEntities,
+  type Extractor,
+  type RawEntity,
+} from './airlock';
 
 /**
  * Two model instances, two rules:
@@ -55,6 +62,22 @@ ADDRESS "9 Quarry Bank" and PERSON "Tobias Lindqvist".
 Do not list organisations, job titles, appointment dates or amounts of money.
 If there is nothing to list, return an empty list.`;
 
+// Second on-device pass. It reads the letter after the first pass, with what
+// was already found replaced by placeholders, and lists what is still readable.
+// A small model lists fewer items on some runs; a fresh look at the remainder
+// catches most of what the first pass dropped.
+const REVIEW_SYSTEM = `You check a document after personal data was removed.
+Removed values now appear as placeholders in square brackets, such as
+[PERSON_1] or [ADDRESS_2]. Ignore the placeholders.
+List every piece of personal data that is STILL readable: any person's name
+(first name alone, surname alone, initial and surname, nicknames, relatives,
+staff who signed), any street address, house or building name, flat number,
+email address, phone number, date of birth, and any reference, account,
+policy, employee, job or tracking number.
+Copy each value exactly as written in the document, character for character.
+Do not list organisations, job titles, appointment dates or amounts of money.
+If nothing personal is still readable, return an empty list.`;
+
 const CLOUD_SYSTEM = `You help people deal with letters and paperwork.
 Personal details in the document were replaced with placeholders such as
 [PERSON_1] or [ADDRESS_1] before it reached you. Treat every placeholder as
@@ -97,6 +120,23 @@ export function createModels(ai: AI): Models {
     },
   });
 
+  const review: GenerativeModel = getGenerativeModel(ai, {
+    mode: InferenceMode.ONLY_ON_DEVICE,
+    onDeviceParams: {
+      createOptions: {
+        initialPrompts: [{ role: 'system', content: [{ type: 'text', value: REVIEW_SYSTEM }] }],
+      },
+      promptOptions: { responseConstraint: entitySchema },
+    },
+  });
+
+  const list = async (model: GenerativeModel, text: string): Promise<RawEntity[]> => {
+    const result = await model.generateContent(`Document:\n\n${text}`);
+    assertOnDevice(result.response.inferenceSource);
+    const parsed = JSON.parse(result.response.text()) as { entities?: RawEntity[] };
+    return Array.isArray(parsed.entities) ? parsed.entities : [];
+  };
+
   // Reads a photographed or scanned letter. Also pinned to the device.
   const vision: GenerativeModel = getGenerativeModel(ai, { mode: InferenceMode.ONLY_ON_DEVICE });
 
@@ -114,10 +154,12 @@ export function createModels(ai: AI): Models {
     },
 
     async extract(chunk) {
-      const result = await scrub.generateContent(`Document:\n\n${chunk}`);
-      assertOnDevice(result.response.inferenceSource);
-      const parsed = JSON.parse(result.response.text()) as { entities?: RawEntity[] };
-      return Array.isArray(parsed.entities) ? parsed.entities : [];
+      const first = await list(scrub, chunk);
+      // Mask what the patterns and the first pass found, then look again.
+      const known = [...detectWithRegex(chunk), ...validateModelEntities(chunk, first)];
+      known.push(...expandNameParts(known));
+      const second = await list(review, redact(chunk, known).redacted);
+      return [...first, ...second];
     },
 
     async transcribe(image) {
