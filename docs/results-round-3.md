@@ -1,9 +1,97 @@
-# Airlock round 3: results up to the stop
+# Airlock round 3: results
 
-Written 16 November 2026, 12:55. Round 3 was stopped at the owner's request
-before the final measurement. **The three final sets have not been run or
-looked at.** Brief: `claude-code-round3-prompt.md`. Earlier work is in
-`results-round-2.md`; where the two disagree, this file is right.
+**Two of the four thresholds are missed.** On the final set the scrub hides
+97.1% of the subject's details, with two runs of five at 96.9% against a
+threshold of 97%, and it keeps 91.5% of medical terms against a threshold of
+95%. Other people's details (100%) and useful facts kept (92.7%) pass.
+
+Written 16 November 2026. Brief: `claude-code-round3-prompt.md`. Earlier work
+is in `results-round-2.md`; where the two disagree, this file is right.
+
+## Final measurement
+
+Run once on frozen code, on sets never measured before. Miss lists were not
+printed and have not been read.
+
+### `final-set`: 46 new fictional documents, five runs
+
+Written by a separate agent that did not see the pattern, marker or model
+code. 481 subject details, 181 other people's details, 409 useful facts, 117
+medical terms of which 60 are high severity.
+
+| Measure | Threshold | Result | Verdict |
+|---|---|---|---|
+| Subject's details hidden | 97% or more in every run | 97.1% mean: 96.9, 96.9, 97.1, 97.7, 97.1 (466 to 470 of 481) | **Missed** in two runs of five, by one detail each |
+| Lower end of the Wilson 95% interval | 95% or more | 94.9, 94.9, 95.2, 96.0, 95.2 | **Missed** in the same two runs |
+| Other people's details hidden | 95% or more | 100% (181 of 181, every run) | Pass |
+| Useful facts kept | 90% or more | 92.7% mean (91.2 to 94.1; 373 to 385 of 409) | Pass |
+| Medical terms kept | 95% or more | 91.5% mean (88.9 to 93.2; 104 to 109 of 117) | **Missed** |
+| No high-severity medical loss in 9 documents of 10 | at most 4 of 46 documents | 3, 6, 7, 4, 5 documents lost one (52 to 56 of 60 terms kept) | **Missed** in three runs of five |
+
+Also on `final-set`: precision 59% (about 880 of 1,490 hidden values overlap
+a labelled detail); 10 to 14 leaked details per run were not underlined, so a
+click could not reach them; safe to send after 16 to 18 ms (median, 57 ms at
+most); model done after 5.0 to 5.5 s (median; 15 to 24 s for the slowest
+document); canaries discarded 1 to 4 of 48 calls; protected items restored
+by the model: 0.
+
+### `outside-final`: 100 documents from Nemotron-PII, three runs
+
+| Measure | Result |
+|---|---|
+| Direct identifiers hidden | 98.5% (337 of 342 in all three runs; Wilson 96.6 to 99.4) |
+| Precision | 61 to 62% |
+| Leaks not underlined | 5 |
+| Safe after / model done | 2 ms / 2.5 to 3.4 s (median) |
+
+One of the three runs was first lost to a harness error and re-run; no
+result from the failed attempt existed. No threshold applies. The data is
+synthetic and short, and has no useful-facts labels, so over-hiding could not
+be measured on it.
+
+### `long-clean`: 5, 10 and 20 pages, three runs
+
+Subject's details 36 of 36, other people's 32 of 32, useful facts 25 of 25,
+medical terms 14 of 14, in every run. Safe after 26 to 35 ms (median, 43 ms
+at most). Model done after 3.0 to 3.8 s (median); the slowest document took
+8.3 to 9.0 s, which includes the model's cold start. One on-device call per
+document.
+
+### Forced CPU: 12 one-page letters, three runs (development letters)
+
+Safe after 7 to 13 ms. Model done after 12.7, 13.8 and 15.9 s (medians;
+17 to 20 s for the slowest letter). 85 of 85 details hidden, 49 or 50 of 51
+useful facts kept, in every run.
+
+### The gap between our letters and outside text
+
+| | Round 2 (old scrub, one run) | Final design |
+|---|---|---|
+| Our own letters | 96.9% on `dev-all` | 97.1% on `final-set` |
+| Outside synthetic text | 88.7% on `outside-dev` | 98.5% on `outside-final` |
+| Gap | 8.2 points | none; outside is 1.4 points higher |
+
+The outside figure moved because of the technical-identifier patterns. The
+final-set figure did not move with the development figure (98.9 to 99.2% on
+`dev-all`), which is what tuning on development letters looks like: about
+two points of that were fitted to letters already seen.
+
+### Reading the result
+
+- **Privacy side: close to the mark, not over it.** 97.1% with an interval
+  of roughly 95 to 98%. Nobody else named in a document leaked in any run.
+- **Usefulness side: the weak point is medical vocabulary.** About one
+  medical term in twelve is hidden, and in three runs of five more than one
+  document in ten lost a term that changes its meaning. The development sets
+  did not predict this (96.9% there); the final set has more, and more
+  varied, medical documents.
+- **Precision of 59% means about four in ten hidden values were not a
+  labelled detail.** Hide first accepts that by design; the answer-quality
+  test in step 3 found no cost on 12 development letters, but it was not run
+  on the final set.
+- **Nothing here was measured on real documents.**
+
+The sections below record how the design got here.
 
 All numbers are three runs with the on-device model unless marked. Sets are
 development and stress sets. The raw table is `round-3-table.md`. The code is
@@ -202,13 +290,14 @@ the stop): safe after 13 ms (median), model done after 15.9 s (11.9 to
 
 ## Not done
 
-- **Step 5, the final measurement.** `final-set` (five runs), `outside-final`
-  (three), `long-clean` (three). Not started.
-- Two more forced-CPU runs.
-- The adoption-rule change is not yet written into `eval-plan.md`.
+- The system-instruction comparison (not triggered: no refusals, 0.8% of
+  placeholders altered or invented).
+- Answer quality on the final set. It was measured on 12 development letters
+  only.
+- Dropped by decision: a two-vote restore, the research branch, idle-decay
+  timing, RedactionBench.
 - `related-work.md` and `firebase-sdk-feedback.md` are written and not
   posted. Related work quotes only figures confirmed from abstracts.
-- The headline against the thresholds, which needs the final sets.
 
 ## Known limits
 
@@ -225,22 +314,25 @@ the stop): safe after 13 ms (median), model done after 15.9 s (11.9 to
 - Everything here is fictional or synthetic text. **Nothing was measured on
   real documents.**
 
-## To resume
+## Sample sizes and what they support
 
-```bash
-git checkout round-2                 # the code is frozen here
-python scripts/fetch-outside.py      # only if outside-data/ is missing
+- `final-set`: 481 subject details, five runs. Supports "about 97%, interval
+  roughly 95 to 98%". It does not support "over 97%".
+- 117 medical terms: supports "about 89 to 93% kept". The high-severity count
+  rests on 60 terms in about 17 documents, so one document moves it a lot.
+- `outside-final`: 342 details, three identical runs. Supports "about 97 to
+  99% on this synthetic dataset". It says nothing about real documents.
+- `long-clean`: three documents. Supports the timings; too small for a rate.
+- Repeat runs share their items, so ranges are given and runs are not pooled.
 
-# Final measurement, once. These print table rows only, never the misses.
-RUNS=5 TAG=FINAL ARMS=a3 SETS="final-set" bash scripts/eval-arms.sh
-TAG=FINAL ARMS=a3 SETS="outside-final long-clean" bash scripts/eval-arms.sh
-grep FINAL eval-results/table.md
+## Questions for the next round
 
-# Two more CPU runs
-CHROME_FEATURES=OnDeviceModelForceCpuBackend RUNS=2 TAG=cpu ARMS=a3 SETS="tuning" bash scripts/eval-arms.sh
-```
-
-Then write the headline against the thresholds in `eval-plan.md`: subject's
-details 97% or more with the interval's lower end at 95% or more, other
-people's 95% or more, useful facts 90% or more, medical terms 95% or more
-with no high-severity loss in 9 documents of 10.
+1. Medical terms: the model may restore what it calls medical, yet one term
+   in twelve stays hidden. Is that the no-restore rule catching terms that
+   are also names, or the model not labelling them medical? The miss lists
+   for `final-set` have not been read; reading them ends its use as a clean
+   set.
+2. Is 97.1% with a 95 to 98% interval the number to publish, and with which
+   wording?
+3. The remaining leaks are details the marker never underlines. Is there
+   time for another marker source, given that it needs a new clean set?
