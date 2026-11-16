@@ -8,3 +8,5 @@ eval-results
 .DS_Store
 outside-data
 .chrome-profile-*
+.ui-review/
+.design-system/
