@@ -283,7 +283,8 @@ export function App() {
                       value={s.text}
                       onValueChange={setText}
                       onPaste={(ev) => {
-                        const pasted = ev.clipboardData.getData('text');
+                        const pasted = ev.clipboardData?.getData('text') ?? '';
+                        if (!pasted) return;
                         const el = ev.currentTarget;
                         // Scrub what the box will hold once the paste has landed.
                         const next = el.value.slice(0, el.selectionStart) + pasted + el.value.slice(el.selectionEnd);
@@ -316,7 +317,7 @@ export function App() {
                 <CardContent>
                   {s.redaction ? (
                     <div className="max-h-128 overflow-auto" data-testid="outgoing-scroll">
-                      <OutgoingText redaction={s.redaction} restored={s.restored} onHide={hide} onShow={show} />
+                      <OutgoingText key={s.run} redaction={s.redaction} restored={s.restored} onHide={hide} onShow={show} />
                     </div>
                   ) : (
                     <Empty variant="plain" data-testid="empty-outgoing">

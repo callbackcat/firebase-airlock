@@ -1,4 +1,4 @@
-import { useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { splitByPlaceholders, type EntitySource, type Redaction } from '../airlock';
 import { findSuspects } from '../suspects';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/glaze/ui/tooltip';
@@ -25,6 +25,9 @@ const WHY: Record<EntitySource, string> = {
 
 /** Above this many marked items a tooltip each would slow the page, so the browser's own hint is used. */
 const TOOLTIP_LIMIT = 400;
+/** A long document is drawn in steps, so the first screen appears at once. */
+const FIRST_STEP = 400;
+const NEXT_STEP = 2000;
 
 interface Item {
   kind: 'text' | 'hidden' | 'restored' | 'suspect';
@@ -84,6 +87,12 @@ export function OutgoingText({
   const items = useMemo(() => buildItems(redaction, restored), [redaction, restored]);
   const marked = items.filter((i) => i.kind !== 'text').length;
   const box = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(FIRST_STEP);
+  useEffect(() => {
+    if (shown >= items.length) return;
+    const id = requestAnimationFrame(() => setShown((n) => n + NEXT_STEP));
+    return () => cancelAnimationFrame(id);
+  }, [shown, items.length]);
 
   // One tab stop for all marked items; arrows move between them.
   const onKeyDown = (ev: KeyboardEvent<HTMLDivElement>) => {
@@ -116,7 +125,7 @@ export function OutgoingText({
   };
 
   let first = true;
-  const nodes: ReactNode[] = items.map((item, i) => {
+  const nodes: ReactNode[] = items.slice(0, shown).map((item, i) => {
     if (item.kind === 'text') return <span key={i}>{item.text}</span>;
     const act = () => (item.kind === 'hidden' ? onShow(item.value!) : onHide(item.value!));
     const action = item.kind === 'hidden' ? 'Press to show it again.' : 'Press to hide it everywhere.';
@@ -135,7 +144,7 @@ export function OutgoingText({
             act();
           }
         }}
-        className={`focus-ring cursor-pointer ${CLASS[item.kind]}`}
+        className={`cursor-pointer ${CLASS[item.kind]}`}
       >
         {item.text}
       </span>
@@ -156,6 +165,7 @@ export function OutgoingText({
       role="group"
       aria-label="What the cloud receives. Arrow keys move between marked words."
       data-testid="outgoing-text"
+      aria-busy={shown < items.length}
       onKeyDown={onKeyDown}
       onClick={onClick}
       className="type-body cursor-text whitespace-pre-wrap break-words text-text-1"

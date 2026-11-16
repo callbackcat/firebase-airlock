@@ -25,13 +25,14 @@ try {
         const { LONG_DEV } = await import('/src/eval/long.ts');
         const text = LONG_DEV[2].text;
         const input = document.querySelector(inputSel);
-        const output = document.querySelector(outputSel);
         const started = performance.now();
-        input.value = text;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('paste', { bubbles: true }));
+        // A real paste event carrying the text, as the browser would send it.
+        const data = new DataTransfer();
+        data.setData('text/plain', text);
+        input.focus();
+        input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
         // Wait until the outgoing pane holds a placeholder, then for the next two frames.
-        while (!/\[[A-Z_]+_\d+\]/.test(output.textContent ?? '')) await new Promise((r) => setTimeout(r, 5));
+        while (!/\[[A-Z_]+_\d+\]/.test(document.querySelector(outputSel)?.textContent ?? '')) await new Promise((r) => setTimeout(r, 5));
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         return { ms: Math.round(performance.now() - started), chars: text.length };
       },

@@ -70,6 +70,10 @@ try {
     await sleep(500);
     await shot('04-vault', theme);
     await page.keyboard.press('Escape');
+    await page.waitForSelector(tid('vault-sheet'), { hidden: true, timeout: 4000 }).catch(async () => {
+      await page.click(`${tid('vault-sheet')} button[aria-label="Close"]`);
+      await page.waitForSelector(tid('vault-sheet'), { hidden: true, timeout: 4000 });
+    });
     await sleep(400);
 
     await page.click(tid('ask-explain'));
