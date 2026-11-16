@@ -81,4 +81,17 @@ as they are.
 
 ## Changes
 
-None yet.
+**16 November 2026, before any final set was measured.**
+
+- The adoption condition for hide first ("useful facts kept within two
+  points of today's scrub") was replaced. Reason: the instruction test showed
+  that a line inside a document could make the model show a person's name
+  again. The owner set new pass conditions for that step: other people's
+  details on the instruction test within the run-to-run range of the same
+  letters without the line, no protected item restored, and ambiguous names
+  no lower than the old scrub. Meeting them needed stricter restores, which
+  cost about four points of useful facts on `dev-all` (99.3% to 95.1%).
+- The thresholds on `final-set` are unchanged.
+- `final-set` came out larger than planned: 46 documents and 481 subject
+  details.
+- RedactionBench was dropped: about half of it is real documents.
