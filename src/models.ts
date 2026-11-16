@@ -442,7 +442,10 @@ Judge each item by how it is used in its lines.`;
 const LONG_DOC_CHARS = env('VITE_LONG_DOC', 8000);
 
 const UNHIDE_LABELS = ['PERSON', 'ADDRESS', 'PERSONAL_NUMBER', 'ORGANISATION', 'PLACE', 'MEDICAL', 'ORDINARY', 'UNSURE'];
-const RESTORABLE = new Set(['ORGANISATION', 'PLACE', 'MEDICAL', 'ORDINARY']);
+// With 'strictrestore' the model may show again only what it calls medical or
+// ordinary. An organisation is then shown only when its own name holds an
+// organisation word, which is decided in code before the model is asked.
+const RESTORABLE = new Set(on('strictrestore') ? ['MEDICAL', 'ORDINARY'] : ['ORGANISATION', 'PLACE', 'MEDICAL', 'ORDINARY']);
 
 const unhideSchema = (count: number) => {
   const keys = Array.from({ length: count }, (_, i) => String(i + 1));

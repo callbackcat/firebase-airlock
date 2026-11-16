@@ -19,6 +19,7 @@
  *   nameslc the same, but only for words written without a capital
  *   lc    in chat-like text, lower-case words that are not ordinary English words are marked
  *   lcdoc in a document typed without capitals, the patterns also run over a capitalised copy
+ *   strictrestore the model may restore only medical and ordinary items, not organisations or places
  *   yesno  the model answers PERSONAL or NOT instead of six labels
  */
 export const DEFAULT_FLAGS = '';
