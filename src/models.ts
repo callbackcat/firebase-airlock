@@ -590,6 +590,9 @@ function assertOnDevice(source: string | undefined): void {
   }
 }
 
+/** Every label the un-hide call has given, newest last. For the benchmark report. */
+export const labelLog: Array<[item: string, label: string]> = [];
+
 let calls = 0;
 /** How many on-device calls have been started since the page loaded. For the benchmark. */
 export const onDeviceCalls = (): number => calls;
@@ -979,6 +982,7 @@ export function createModels(ai: AI): Models {
         try {
           const first = await ask(items);
           items.forEach((item, i) => {
+            labelLog.push([item, first.labels[i]]);
             labelOf.set(item, first.labels[i]);
             restoreVotes.set(item, RESTORABLE.has(first.labels[i]));
           });
