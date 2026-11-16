@@ -50,21 +50,21 @@ try {
   const scrub = async () => {
     await page.$eval('#scrub-note', (n) => (n.textContent = ''));
     await page.click('#sample');
-    await page.waitForFunction(() => /Scrubbed/.test(document.getElementById('scrub-note').textContent), {
+    await page.waitForFunction(() => /finished after|did not run/.test(document.getElementById('scrub-note').textContent), {
       timeout: Number(process.env.EVAL_TIMEOUT_MIN ?? 45) * 60_000,
     });
     return page.$eval('#scrub-note', (n) => n.textContent);
   };
   phase = 'warm-up scrub';
   const warm = await scrub();
-  const modelRan = warm.includes('on device');
+  const modelRan = warm.includes('on-device model finished');
 
   // Scrub again with the page offline.
   phase = 'offline scrub';
   await page.setOfflineMode(true);
   const offline = await scrub();
   await page.setOfflineMode(false);
-  const offlineOk = offline.includes('on device');
+  const offlineOk = offline.includes('on-device model finished');
 
   const hiddenValues = await page.$$eval('#entities tbody td.v:not(.off)', (tds) => tds.map((td) => td.textContent));
   const outgoing = await page.$eval('#preview', (n) => n.textContent);

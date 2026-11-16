@@ -1,5 +1,6 @@
 import {
   findLeaks,
+  isLowerCaseText,
   normalise,
   redact,
   restore,
@@ -338,11 +339,22 @@ function renderEntities(): void {
 
 function renderAck(): void {
   const host = $('ack');
+  // Names are found mostly by their capital letter. Text typed without capitals needs a human look.
+  const lower = state.redaction && isLowerCaseText(state.source)
+    ? [
+        el('p', {
+          className: 'note warn',
+          textContent:
+            'This text has almost no capital letters. Names are much harder to spot in it, so some may still be readable. Read the preview and click any name you see.',
+        }),
+      ]
+    : [];
   if (state.modelUsed || state.pending || !state.redaction) {
-    host.replaceChildren();
+    host.replaceChildren(...lower);
     return;
   }
   host.replaceChildren(
+    ...lower,
     el('p', {
       className: 'note warn',
       textContent:
