@@ -29,6 +29,7 @@ const sets = {
   'stress-lower': stress.STRESS_LOWER,
   'stress-upper': stress.STRESS_UPPER,
   'stress-messy': stress.STRESS_MESSY,
+  'stress-traps': stress.STRESS_TRAPS,
   'long-dev': (await s.ssrLoadModule('/src/eval/long.ts')).LONG_DEV,
 };
 if (process.env.OUTSIDE) sets['outside-dev'] = JSON.parse(readFileSync(process.env.OUTSIDE, 'utf8'));

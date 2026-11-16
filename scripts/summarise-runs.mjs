@@ -12,7 +12,7 @@ import { ROOT } from './chrome.mjs';
 const n = Number(process.argv[2] ?? 3);
 const rowAt = process.argv.indexOf('--row');
 const rowName = rowAt > 0 ? process.argv[rowAt + 1] : '';
-const dir = path.join(ROOT, 'eval-results');
+const dir = path.join(ROOT, process.env.EVAL_OUT ?? 'eval-results');
 const files = readdirSync(dir)
   .filter((f) => /^\d{4}-.*\.json$/.test(f))
   .sort()

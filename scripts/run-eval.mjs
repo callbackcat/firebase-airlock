@@ -51,7 +51,7 @@ try {
   report.chromeVersion = chrome.version;
   report.consoleErrors = consoleErrors;
 
-  const dir = path.join(ROOT, 'eval-results');
+  const dir = path.join(ROOT, process.env.EVAL_OUT ?? 'eval-results');
   mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${report.startedAt.replace(/[:.]/g, '-')}.json`);
   writeFileSync(file, JSON.stringify(report, null, 2));

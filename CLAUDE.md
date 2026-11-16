@@ -15,8 +15,12 @@ hackathon. Read `README.md` first, then `docs/hackathon-checklist.md`.
 3. **Never commit secrets.** `.env.local`, App Check debug tokens, service
    account keys. Do not print them in logs or reports either. `eval-results/`
    is git-ignored because it can hold request bodies.
-4. **Only fictional data.** Every letter, name and number in fixtures and
-   samples is made up. Do not add real documents or real people.
+4. **Only fictional data in the repository.** Every letter, name and number in
+   fixtures and samples is made up. Do not add real documents or real people.
+   One exception, for measurement only: a real public dataset may be used
+   locally, in a git-ignored folder, with the on-device scrub only. No cloud
+   call is made on it at all, and no output that contains its names is
+   written to the repository.
 5. **Say what was not tested.** Reports state what ran, on what, and what did
    not run.
 

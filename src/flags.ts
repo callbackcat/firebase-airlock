@@ -20,6 +20,8 @@
  *   lc    in chat-like text, lower-case words that are not ordinary English words are marked
  *   lcdoc in a document typed without capitals, the patterns also run over a capitalised copy
  *   strictrestore the model may restore only medical and ordinary items, not organisations or places
+ *   medsafe a marked item that is a whole phrase on the medical list is shown without asking the model
+ *   updoc a document written almost all in capitals is handled as if it were lower case
  *   yesno  the model answers PERSONAL or NOT instead of six labels
  */
 export const DEFAULT_FLAGS = 'strictrestore,nameslc,lcdoc,tech,w2,adj';

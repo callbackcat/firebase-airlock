@@ -264,6 +264,13 @@ export function isLowerCaseText(text: string): boolean {
   return letters.replace(/[^\p{Lu}]/gu, '').length / letters.length < 0.01;
 }
 
+/** True when a document is written almost all in capitals. */
+export function isUpperCaseText(text: string): boolean {
+  const letters = text.replace(/[^\p{L}]/gu, '');
+  if (letters.length < 80) return false;
+  return letters.replace(/[^\p{Ll}]/gu, '').length / letters.length < 0.05;
+}
+
 /**
  * The patterns lean on capitals: a postcode, a titled name, a street. In a
  * document typed without any, they are also run over a copy with every word

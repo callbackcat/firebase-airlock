@@ -1,6 +1,7 @@
 import {
   ORG_WORD,
   detectWithRegex,
+  isUpperCaseText,
   expandNameParts,
   redact,
   shortForms,
@@ -10,7 +11,7 @@ import {
 } from './airlock';
 import { on } from './flags';
 import { findSuspects, notAName } from './suspects';
-import { isCommonWord, isListedName, wordListsLoaded } from './wordlists';
+import { isCommonWord, isListedName, isMedicalPhrase, wordListsLoaded } from './wordlists';
 
 /**
  * Hide first. Everything the patterns find and everything the marker
@@ -40,6 +41,76 @@ const ROLE_BEFORE = new RegExp(`(?<![\\p{L}])(?:${ROLE})\\.?:?,?[ \\t]+$`, 'iu')
 // named after someone ("Parkinson's disease", "Holter monitor"), not a person.
 const EPONYM_TAIL =
   /^(?:['’]s?)?[ \t]+(?:disease|syndrome|sign|score|scale|test|scan|monitor|catheter|solution|manoeuvre|maneuver|valve|palsy|lymphoma|phenomenon|thyroiditis|fracture|classification|criteria|method|procedure|operation|reflex|tube|ulcer|sarcoma|tumou?r|virus|stain|law|chart)\b/i;
+
+// What follows a medicine: a dose, a strength, a form or a frequency.
+const DOSE_OR_FORM =
+  /^[ \t]*(?:\d+(?:[.,/]\d+)?[ \t]?(?:mg|g|mcg|micrograms?|ml|units?|mmol|iu|%)(?![\p{L}])|\d+\/\d+\b|(?:tablets?|capsules?|caps|tabs|cream|ointment|gel|inhaler|injection|infusion|drops|patch(?:es)?|suspension|syrup|spray|sachets?|once|twice|daily|nightly|weekly|bd|tds|qds|od|prn|mr|xl|sr)(?![\p{L}]))/iu;
+const HEAD_WORD = /^(?:['’]s?)?[ \t]+(?:disease|syndrome)(?![\p{L}])/iu;
+const norm = (s: string) => s.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim();
+
+/**
+ * True when a marked item is medical vocabulary and can be shown without
+ * asking the model: a medicine, a condition, a test or a term named after a
+ * person. Decided in code, so no text in the document and no model mistake
+ * can change it, and a canary discard does not undo it.
+ *
+ *  - Every use of the item must sit inside a whole phrase on the medical
+ *    list ("Parkinson's disease", "Holter monitor", "Metformin").
+ *  - Or be followed by "disease" or "syndrome", and hold no word from the
+ *    name list. No other head word counts: a line, a test, a scan, a sign
+ *    and a scale all follow ordinary names too.
+ *  - A single listed word that is also on the name list ("Senna") counts
+ *    only when a dose, strength, form or frequency follows it.
+ *  - Never after a title or role word, never next to a hidden name, and
+ *    never when the same word is a hidden name elsewhere in the document.
+ */
+export function medicalSafe(masked: string, item: string, nameWords: Set<string>): boolean {
+  if (!wordListsLoaded() || ROLE_INSIDE.test(item)) return false;
+  const words = norm(item).split(/[^\p{L}]+/u).filter((w) => w.length >= 3);
+  if (!words.length || words.some((w) => nameWords.has(w))) return false;
+  const onNameList = words.some((w) => isListedName(w) && !isCommonWord(w));
+  const base = norm(item);
+  const bare = base.replace(/'s?$/, '');
+  let uses = 0;
+  let at = 0;
+  for (;;) {
+    at = masked.indexOf(item, at);
+    if (at < 0) break;
+    uses++;
+    const before = masked.slice(Math.max(0, at - 40), at);
+    const after = masked.slice(at + item.length, at + item.length + 60);
+    at += item.length;
+    if (/\[PERSON_\d+\][ \t]$/.test(before) || /^[ \t]\[PERSON_\d+\]/.test(after)) return false;
+    if (ROLE_BEFORE.test(before)) return false;
+    // The words straight after and straight before, up to the next punctuation mark.
+    const next = (/^[ \t]+([\p{L}\p{N}'’ -]{0,50})/u.exec(after)?.[1] ?? '').split(/\s+/).filter(Boolean).slice(0, 3).map(norm);
+    const prev = norm(/([\p{L}'’-]+)[ \t]+$/u.exec(before)?.[1] ?? '');
+    let ok = false;
+    // The item on its own. A single word counts only when it is five letters
+    // or more, is not a possessive ("Crohn's secretary"), is not the name in
+    // an eponym ("Crohn" alone is a person), and is not followed by another
+    // capitalised word ("Metformin Okafor"). If it is also on the name list
+    // it needs a dose or form after it.
+    const single = words.length === 1;
+    const possessive = /['’]s?$/.test(item);
+    const eponymName = single && (isMedicalPhrase(`${bare}'s disease`) || isMedicalPhrase(`${bare} disease`) || isMedicalPhrase(`${bare} syndrome`) || isMedicalPhrase(`${bare}'s syndrome`));
+    const beforeName = /^[ \t]+\p{Lu}\p{Ll}/u.test(after);
+    if (isMedicalPhrase(base) && !possessive) {
+      if (!single) ok = true;
+      else if (base.length >= 5 && !eponymName && !beforeName && (!onNameList || DOSE_OR_FORM.test(after))) ok = true;
+    }
+    // The item as the start, or the middle, of a longer phrase on the list.
+    for (let n = 1; !ok && n <= next.length; n++) {
+      const tail = next.slice(0, n).join(' ');
+      if (isMedicalPhrase(`${base} ${tail}`) || isMedicalPhrase(`${bare} ${tail}`)) ok = true;
+      else if (prev && (isMedicalPhrase(`${prev} ${base} ${tail}`) || isMedicalPhrase(`${prev} ${bare} ${tail}`))) ok = true;
+    }
+    if (!ok && prev && isMedicalPhrase(`${prev} ${base}`)) ok = true;
+    if (!ok && !onNameList && HEAD_WORD.test(after)) ok = true;
+    if (!ok) return false;
+  }
+  return uses > 0;
+}
 
 /**
  * True when the model must not be allowed to show a marked item again,
@@ -80,7 +151,10 @@ export function restoreBlock(masked: string, item: string): 'role word' | 'next 
   return listed && !(uses > 0 && eponyms === uses) ? 'name list' : null;
 }
 
-export function hideFirst(text: string, safeRules: boolean): HideFirst {
+export function hideFirst(original: string, safeRules: boolean): HideFirst {
+  // A document in capitals gives the capital-letter rule nothing to go on:
+  // every word looks like a name. Handle it as lower-case text instead.
+  const text = on('updoc') && isUpperCaseText(original) ? original.toLowerCase() : original;
   const regex = detectWithRegex(text);
   const known = [...regex, ...expandNameParts(regex)];
   known.push(...shortForms(text, known));
@@ -89,6 +163,12 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
   const seen = new Set<string>();
   const marked: Entity[] = [];
   const protectedMarks: Entity[] = [];
+  // Words that are a hidden person's name somewhere in this document.
+  const nameWords = new Set<string>();
+  for (const e of known) {
+    if (e.kind !== 'PERSON') continue;
+    for (const w of e.value.toLowerCase().split(/[^\p{L}]+/u)) if (w.length >= 3) nameWords.add(w);
+  }
   const blocked: Record<string, string> = {};
   for (const s of findSuspects(masked)) {
     const key = s.text.toLowerCase();
@@ -97,6 +177,8 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
     // Safe rules: an organisation word in the name, a word that is also
     // written in lower case, a word followed by a dose.
     if (safeRules && s.reason === 'name' && (ORG_WORD.test(s.text) || notAName(masked, s.text))) continue;
+    // Medical vocabulary is shown, in code, before any other rule looks at it.
+    if (s.reason === 'name' && on('medsafe') && medicalSafe(masked, s.text, nameWords)) continue;
     const block = s.reason === 'name' ? restoreBlock(masked, s.text) : null;
     if (block) {
       blocked[s.text] = block;
@@ -122,6 +204,7 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
       // A short word straight after a number or a slash is a unit: "30 min", "mmol/mol".
       const unit = /[\d/]\s?$/.test(blank.slice(Math.max(0, m.index - 2), m.index));
       const name = isListedName(word) && !isCommonWord(word) && !unit;
+      if (name && on('medsafe') && medicalSafe(masked, word, nameWords)) continue;
       if (name && (on('names') || (on('nameslc') && lower))) {
         seen.add(key);
         // A capitalised one was marked above; take it out of the model's hands.

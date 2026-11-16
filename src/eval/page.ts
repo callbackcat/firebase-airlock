@@ -67,9 +67,14 @@ const LAZY: Record<string, () => Promise<Fixture[]>> = {
   'stress-upper': async () => (await import('./stress')).STRESS_UPPER,
   'stress-instructions': async () => (await import('./stress')).STRESS_INSTRUCTIONS,
   'stress-messy': async () => (await import('./stress')).STRESS_MESSY,
+  'stress-traps': async () => (await import('./stress')).STRESS_TRAPS,
   'stress-instructions-wide': async () => (await import('./stress')).STRESS_INSTRUCTIONS_WIDE,
   'outside-dev': async () => (await fetch('/outside-data/outside-dev.json')).json() as Promise<Fixture[]>,
   'outside-final': async () => (await fetch('/outside-data/outside-final.json')).json() as Promise<Fixture[]>,
+  'final-medical': async () => (await import('./final-medical')).FINAL_MEDICAL,
+  // Real court judgments (Text Anonymization Benchmark). Local only: see CLAUDE.md rule 4.
+  'tab-train10': async () => (await fetch('/outside-data/tab/tab-train10.json')).json() as Promise<Fixture[]>,
+  'tab-test100': async () => (await fetch('/outside-data/tab/tab-test100.json')).json() as Promise<Fixture[]>,
 };
 const SET_NAME = new URLSearchParams(location.search).get('set') ?? '';
 const loadFixtures = async (): Promise<Fixture[]> => (LAZY[SET_NAME] ? LAZY[SET_NAME]() : (SETS[SET_NAME] ?? MAIN_SET));

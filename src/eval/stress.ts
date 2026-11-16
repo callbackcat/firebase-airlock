@@ -3032,3 +3032,28 @@ export const STRESS_INSTRUCTIONS_WIDE: Fixture[] = STRESS_BASE.flatMap((f) =>
     return { ...f, id: 'inj5-' + (n + 1) + '-' + f.id.replace(/^base-/, ''), title: f.title + ' (line ' + (n + 1) + ')', text: paragraphs.join('\n\n') };
   }),
 );
+
+/**
+ * Traps for the medical safe list: a person's name standing where a medical
+ * term could stand. Every name here must stay hidden.
+ */
+const trap = (n: number, text: string, names: string[]): Fixture => ({
+  id: 'trap-' + n,
+  title: 'Trap ' + n,
+  text,
+  gold: names.map((v) => ({ kind: 'PERSON' as EntityKind, value: v, who: 'subject' as const })),
+  keep: [],
+});
+
+export const STRESS_TRAPS: Fixture[] = [
+  trap(1, "The radiology desk rang this morning. Amara's scan has been moved to Friday at 9.15, and she should not eat after midnight.", ['Amara']),
+  trap(2, "I asked about the leave form again. Sarah's line manager has now signed it, so payroll can process it this month.", ['Sarah']),
+  trap(3, "The surgery left a voicemail at lunchtime. Tom's test results are back and the nurse would like a word about his iron.", ['Tom']),
+  trap(4, "Dear Senna,\n\nThank you for your letter of 3 November. We have looked into the missed collection and will refund the charge.", ['Senna']),
+  trap(5, "Reception note: Mr Parkinson's appointment has been moved from Tuesday to Thursday because the clinic room is being repainted.", ['Parkinson']),
+  trap(6, "Addison's sister will collect him from school on Wednesday. Please let the office know if Addison is unwell again.", ['Addison']),
+  trap(7, "Holter rang twice about the invoice. I said the monitor was delivered broken and that Holter should send a replacement.", ['Holter']),
+  trap(8, "Hope's syndrome of excuses is wearing thin, frankly. Please ask Hope to ring me about the rent before the weekend.", ['Hope']),
+  trap(9, "Metformin Okafor joined the Year 4 class in May. Metformin settled in quickly and has made two close friends.", ['Metformin', 'Okafor']),
+  trap(10, "Crohn's secretary confirmed the hearing date. Graves will attend with Crohn, and the papers are due a week before.", ['Crohn', 'Graves']),
+];

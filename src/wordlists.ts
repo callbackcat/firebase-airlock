@@ -8,11 +8,17 @@
  */
 let names: Set<string> | null = null;
 let common: Set<string> | null = null;
+let medical: Set<string> | null = null;
 let loading: Promise<void> | null = null;
 
 export function loadWordLists(): Promise<void> {
   loading ??= (async () => {
-    const [n, c] = await Promise.all([import('./data/names.txt?raw'), import('./data/common-words.txt?raw')]);
+    const [n, c, m] = await Promise.all([
+      import('./data/names.txt?raw'),
+      import('./data/common-words.txt?raw'),
+      import('./data/medical.txt?raw'),
+    ]);
+    medical = new Set(m.default.split(/\r?\n/).filter(Boolean));
     names = new Set(n.default.split(/\r?\n/).filter(Boolean));
     common = new Set(c.default.split(/\r?\n/).filter(Boolean));
   })();
@@ -22,5 +28,7 @@ export function loadWordLists(): Promise<void> {
 export const wordListsLoaded = (): boolean => names !== null && common !== null;
 /** A given name or surname from the list. The list leaves out names that are also very common words. */
 export const isListedName = (word: string): boolean => names?.has(word.toLowerCase()) ?? false;
+/** A medicine, condition, test or procedure from the medical list, as a whole lower-case phrase. */
+export const isMedicalPhrase = (phrase: string): boolean => medical?.has(phrase) ?? false;
 /** One of about 30,000 ordinary English word forms. */
 export const isCommonWord = (word: string): boolean => common?.has(word.toLowerCase()) ?? false;
