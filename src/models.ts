@@ -17,7 +17,7 @@ import {
 } from './airlock';
 import { on } from './flags';
 import { findSuspects, notAName } from './suspects';
-import type { Unhide } from './hidefirst';
+import { standsLikeAName, type Unhide } from './hidefirst';
 
 /**
  * Two model instances, two rules:
@@ -998,7 +998,7 @@ export function createModels(ai: AI): Models {
               const label = malformed ? 'UNSURE' : (labelFor.get(item) ?? 'UNSURE');
               labelLog.push([item, label]);
               labelOf.set(item, label);
-              restoreVotes.set(item, !tripped && RESTORABLE.has(label));
+              restoreVotes.set(item, !tripped && RESTORABLE.has(label) && !(on('medsafe') && standsLikeAName(masked, item)));
             });
           } catch (err) {
             console.warn('Un-hide call failed, this batch stays hidden', err);
@@ -1041,7 +1041,7 @@ export function createModels(ai: AI): Models {
           items.forEach((item, i) => {
             labelLog.push([item, first.labels[i]]);
             labelOf.set(item, first.labels[i]);
-            restoreVotes.set(item, !tripped && RESTORABLE.has(first.labels[i]));
+            restoreVotes.set(item, !tripped && RESTORABLE.has(first.labels[i]) && !(on('medsafe') && standsLikeAName(masked, item)));
           });
           for (const value of first.missed) {
             const entity = fromMissed(value);

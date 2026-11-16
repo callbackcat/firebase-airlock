@@ -24,7 +24,7 @@
  *   updoc a document written almost all in capitals is handled as if it were lower case
  *   yesno  the model answers PERSONAL or NOT instead of six labels
  */
-export const DEFAULT_FLAGS = 'strictrestore,nameslc,lcdoc,tech,w2,adj';
+export const DEFAULT_FLAGS = 'strictrestore,nameslc,lcdoc,tech,w2,adj,medsafe';
 
 const raw = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_FLAGS;
 export const FLAGS = new Set(

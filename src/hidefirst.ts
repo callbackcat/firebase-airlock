@@ -113,6 +113,30 @@ export function medicalSafe(masked: string, item: string, nameWords: Set<string>
 }
 
 /**
+ * True when a single marked word stands the way a person's name stands, so
+ * the model's "medical" label is not enough to show it: a possessive
+ * ("Crohn's secretary"), the surname of an eponym on its own ("Crohn"), or a
+ * word straight before another capitalised word ("Metformin Okafor"). A
+ * whole phrase on the medical list has already been shown by medicalSafe;
+ * this is for what is left.
+ */
+export function standsLikeAName(masked: string, item: string): boolean {
+  if (!wordListsLoaded()) return false;
+  const words = norm(item).split(/[^\p{L}]+/u).filter((w) => w.length >= 3);
+  if (words.length !== 1 && !/['’]s?$/.test(item)) return false;
+  const bare = norm(item).replace(/'s?$/, '');
+  if (/['’]s?$/.test(item)) return true;
+  if (isMedicalPhrase(`${bare}'s disease`) || isMedicalPhrase(`${bare} disease`) || isMedicalPhrase(`${bare} syndrome`) || isMedicalPhrase(`${bare}'s syndrome`)) return true;
+  let at = 0;
+  for (;;) {
+    at = masked.indexOf(item, at);
+    if (at < 0) return false;
+    if (/^[ \t]+\p{Lu}\p{Ll}/u.test(masked.slice(at + item.length, at + item.length + 12))) return true;
+    at += item.length;
+  }
+}
+
+/**
  * True when the model must not be allowed to show a marked item again,
  * whatever it says about it. In any letter case:
  *  - it holds a word from the name list (unless every use is an eponym);
