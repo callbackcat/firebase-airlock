@@ -32,6 +32,8 @@ export interface DocScore {
   quasi: Array<{ value: string; readable: boolean }>;
   /** Characters in the document. */
   chars: number;
+  /** The label the un-hide call gave each marked item. */
+  labels?: Array<[item: string, label: string]>;
   /** Pattern hits the model tried to restore. Must be 0: only marked items can be restored. */
   restoredProtected?: number;
   /** Milliseconds until the text was safe to send. Equal to `ms` unless the scrub hides first. */

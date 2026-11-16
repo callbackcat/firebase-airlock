@@ -34,10 +34,16 @@ try {
   await page.click('#run');
   const deadline = Date.now() + TIMEOUT_MIN * 60_000;
   let last = '';
+  let moved = Date.now();
   while (!(await page.evaluate(() => document.body.dataset.done === '1'))) {
     if (Date.now() > deadline) throw new Error(`Benchmark did not finish in ${TIMEOUT_MIN} minutes.`);
     const now = await page.$eval('#progress', (n) => n.textContent);
-    if (now !== last) console.log(`  ${(last = now)}`);
+    if (now !== last) {
+      console.log(`  ${(last = now)}`);
+      moved = Date.now();
+    }
+    // A run that shows no progress for three minutes is stuck. Stop it; do not wait out the clock.
+    if (Date.now() - moved > 180_000) throw new Error(`No progress for three minutes at: ${last}`);
     await new Promise((r) => setTimeout(r, 2000));
   }
 

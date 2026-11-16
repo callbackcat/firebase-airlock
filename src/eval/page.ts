@@ -1,7 +1,7 @@
 import { detect, type Detection, type Extractor } from '../airlock';
 import { applyUnhide, hideFirst } from '../hidefirst';
 import { initFirebase } from '../firebase';
-import { createModels, onDeviceCalls, type Models } from '../models';
+import { createModels, labelLog, onDeviceCalls, type Models } from '../models';
 import { FIXTURES as MAIN_SET, type Fixture } from './fixtures';
 import { HOLDOUT } from './holdout';
 import { HOLDOUT2 } from './holdout2';
@@ -196,6 +196,7 @@ async function run(): Promise<void> {
     }
     const scored = scoreDoc(fixture, detection, Math.round(performance.now() - started), raw);
     scored.safeMs = safeMs;
+    scored.labels = labelLog.splice(0);
     scored.restoredProtected = restoredProtected;
     scored.calls = onDeviceCalls() - callsBefore;
     docs.push(scored);
