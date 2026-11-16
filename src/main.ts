@@ -1,12 +1,14 @@
 import {
-  detect,
   findLeaks,
   normalise,
   redact,
+  restore,
   splitByPlaceholders,
   type Entity,
   type Redaction,
 } from './airlock';
+import { applyUnhide, hideFirst } from './hidefirst';
+import { loadWordLists } from './wordlists';
 import { initFirebase } from './firebase';
 import { findSuspects } from './suspects';
 import { createModels, type Models, type Task } from './models';
@@ -43,8 +45,10 @@ const state = {
   scrubMs: 0,
   /** How long the fixed patterns took. They are shown before the model is done. */
   patternMs: 0,
-  /** True while the on-device model is still reading a letter already on screen. */
+  /** True while the on-device model is still deciding what can be shown again. */
   pending: false,
+  /** Values the model judged safe and put back, in lower case. Shown differently from text that was never marked. */
+  restored: new Set<string>(),
   /**
    * True when the warm-up call showed that a scrub will take long on this
    * machine. The person may then send after checking the text themselves,
@@ -131,51 +135,47 @@ async function scrub(): Promise<void> {
   scrubbing = true;
   scrubBtn.disabled = true;
   try {
-    // 1. Fixed patterns. They take a few milliseconds, so the reader sees
-    //    most of the result at once instead of a blank panel.
+    // 1. Hide first. Everything the patterns find and everything that could
+    //    be personal is hidden at once, with no model. From here the text is
+    //    safe to send.
     const started = performance.now();
-    const quick = await detect(text);
+    await loadWordLists().catch(() => undefined);
+    const first = hideFirst(text, true);
     state.patternMs = Math.round(performance.now() - started);
     state.source = text;
-    state.all = quick.entities;
+    state.all = first.entities;
     state.excluded.clear();
+    state.restored.clear();
     state.modelUsed = false;
     state.acknowledged = false;
     state.pending = true;
-    scrubNote.textContent = `Patterns applied in ${state.patternMs} ms. The on-device model is still reading…`;
+    scrubNote.textContent = `Hidden in ${state.patternMs} ms. Safe to send. The on-device model is now restoring useful details…`;
     recompute();
 
-    // 2. The on-device model. Its finds are added when they arrive. Sending is
-    //    held back until then.
+    // 2. The on-device model decides which hidden items are safe to show
+    //    again: an organisation, a town, a medicine. If it fails or runs out
+    //    of time, nothing is restored.
     await ensureOnDevice();
-    const extract = state.onDevice === 'ready' ? state.models?.extract : undefined;
-    let modelError: string | undefined;
-    if (extract) {
-      // Results are shown as they arrive, in reading order.
-      const result = await detect(text, extract, state.models?.pieceChars, (entities) => {
+    if (state.onDevice === 'ready' && state.models) {
+      const merge = (result: Parameters<typeof applyUnhide>[2]) => {
         if (input.value !== text) return;
         const manual = state.all.filter((e) => e.source === 'manual');
-        state.all = [...entities, ...manual];
+        state.all = [...applyUnhide(text, first, result), ...manual];
+        state.restored = new Set(result.restore.map((v) => v.toLowerCase()));
         recompute();
-      });
-      modelError = result.modelError;
-      if (result.modelUsed) {
-        // Keep anything hidden by hand while the model was running.
-        const manual = state.all.filter((e) => e.source === 'manual');
-        state.all = [...result.entities, ...manual];
+      };
+      try {
+        merge(await state.models.unhide(text, first.marks, merge));
         state.modelUsed = true;
+      } catch (err) {
+        console.warn('Un-hide failed, everything marked stays hidden', err);
       }
     }
     state.scrubMs = Math.round(performance.now() - started);
     state.pending = false;
-    if (modelError) {
-      console.warn('On-device extraction failed', modelError);
-      state.onDevice = 'unavailable';
-      renderStatus();
-    }
     scrubNote.textContent = state.modelUsed
-      ? `Scrubbed on device in ${state.scrubMs} ms (patterns shown after ${state.patternMs} ms).${state.models?.secondPassSkipped() ? ' This device is slow, so the second check was skipped: look at the underlined text.' : ''}`
-      : `Scrubbed with patterns only in ${state.patternMs} ms.`;
+      ? `Safe to send after ${state.patternMs} ms. The on-device model finished after ${state.scrubMs} ms and restored ${state.restored.size} useful ${state.restored.size === 1 ? 'detail' : 'details'}.`
+      : `Safe to send after ${state.patternMs} ms. The on-device model did not run, so everything that could be personal stays hidden.`;
     recompute();
   } finally {
     state.pending = false;
@@ -192,24 +192,14 @@ async function scrub(): Promise<void> {
 // The first on-device call after the page opens is slow, because Chrome has
 // to load the model into memory. Do that as soon as the person touches the
 // page, so the wait is over before they click Scrub.
-/** One-page scrub time as a multiple of the warm-up call, measured on GPU and CPU. */
-const SCRUB_PER_CALL = 1.7;
-/** A predicted scrub longer than this starts in review mode. */
-const SLOW_SCRUB_MS = 8000;
 let warmed = false;
 function warmUp(): void {
   if (warmed) return;
   warmed = true;
+  void loadWordLists().catch(() => undefined);
   void (async () => {
     await ensureOnDevice();
-    if (state.onDevice !== 'ready' || !state.models) return;
-    const callMs = await state.models.warmUp();
-    // A one-page scrub takes about 1.7 times the fixed cost of a call.
-    state.slow = callMs * SCRUB_PER_CALL > SLOW_SCRUB_MS;
-    if (state.pending) {
-      renderAck();
-      updateSend();
-    }
+    if (state.onDevice === 'ready') await state.models?.warmUp();
   })();
 }
 
@@ -245,10 +235,12 @@ function renderPreview(): void {
     for (const mark of suspects) {
       if (mark.start < cursor || mark.end > offset) continue;
       if (mark.start > cursor) nodes.push(document.createTextNode(r.redacted.slice(cursor, mark.start)));
+      // Text the model put back looks different from text that was never hidden.
+      const back = state.restored.has(mark.text.toLowerCase());
       const span = el('span', {
-        className: 'suspect',
+        className: back ? 'suspect back' : 'suspect',
         textContent: mark.text,
-        title: 'Still readable. Click to hide it.',
+        title: back ? 'The on-device model judged this safe to show. Click to hide it again.' : 'Still readable. Click to hide it.',
         tabIndex: 0,
       });
       span.setAttribute('role', 'button');
@@ -267,9 +259,11 @@ function renderPreview(): void {
   }
   preview.replaceChildren(...nodes);
 
-  $('suspect-note').textContent = suspects.length
-    ? `${suspects.length} underlined ${suspects.length === 1 ? 'item is' : 'items are'} still readable and could be personal. Click any to hide it.`
-    : '';
+  $('suspect-note').textContent = state.pending
+    ? 'Everything that could be personal is hidden. The on-device model is putting back what is safe.'
+    : suspects.length
+      ? `${suspects.length} underlined ${suspects.length === 1 ? 'item was' : 'items were'} put back or left readable. Click any word to hide it everywhere.`
+      : 'Click any word to hide it everywhere.';
 }
 
 function hideValue(value: string): void {
@@ -344,50 +338,23 @@ function renderEntities(): void {
 
 function renderAck(): void {
   const host = $('ack');
-  if (state.modelUsed || (state.pending && !state.slow)) {
+  if (state.modelUsed || state.pending || !state.redaction) {
     host.replaceChildren();
     return;
   }
-  if (state.pending) {
-    // Review mode: the model is slow here, so the person may go ahead on their own check.
-    const box = el('input', { type: 'checkbox', checked: state.acknowledged });
-    box.onchange = () => {
-      state.acknowledged = box.checked;
-      updateSend();
-    };
-    host.replaceChildren(
-      el('p', {
-        className: 'note warn',
-        textContent:
-          'This device is slow, so the on-device model is still working. The fixed patterns are applied and the underlined text shows what may still be personal. More will be hidden as the model gets to it. You can wait, or check the text yourself and send now.',
-      }),
-      el('label', { className: 'ack' }, [box, 'I have checked the text above myself.']),
-    );
-    return;
-  }
-  const box = el('input', { type: 'checkbox', checked: state.acknowledged });
-  box.onchange = () => {
-    state.acknowledged = box.checked;
-    updateSend();
-  };
   host.replaceChildren(
     el('p', {
       className: 'note warn',
       textContent:
-        'The on-device model did not run, so only fixed patterns (emails, phone numbers, postcodes, bank and ID numbers) were hidden. Names and street addresses were not checked. Hide them by hand below.',
+        'The on-device model did not run. Everything that could be personal is still hidden, including organisation names and other useful details, so the answer may be less specific. Untick anything below that you want the cloud model to see.',
     }),
-    el('label', { className: 'ack' }, [box, 'I have checked the text above myself.']),
   );
 }
 
 function updateSend(): void {
   const r = state.redaction;
-  let reason = '';
-  if (!r) reason = '';
-  else if (!state.models) reason = 'Add a Firebase config to enable the cloud step (see README).';
-  else if (state.pending && !state.slow) reason = 'The on-device model is still reading. You can review what the patterns found.';
-  else if (state.pending && !state.acknowledged) reason = 'The on-device model is still working. Wait, or confirm you have checked the text.';
-  else if (!state.modelUsed && !state.acknowledged) reason = 'Confirm you have checked the text.';
+  // The text is safe as soon as it is hidden, so sending does not wait for the model.
+  const reason = r && !state.models ? 'Add a Firebase config to enable the cloud step (see README).' : '';
   sendBtn.disabled = !r || reason !== '';
   sendNote.textContent = reason;
 }
@@ -436,21 +403,32 @@ async function send(): Promise<void> {
 function renderAnswer(cloudText: string, r: Redaction): void {
   const answer = $('answer');
   answer.classList.remove('empty');
+  // A cloud model sometimes alters a placeholder on the way back, or makes one
+  // up. Altered ones are matched and restored. A made-up one is shown as it
+  // is and flagged; nothing is guessed.
+  const back = restore(cloudText, r.vault);
   answer.replaceChildren(
-    ...splitByPlaceholders(cloudText).map((s) => {
-      if (!s.placeholder) return document.createTextNode(s.text);
-      const real = r.vault[s.placeholder];
-      return real !== undefined
-        ? el('span', { className: 'restored', textContent: real, title: `Cloud wrote ${s.placeholder}` })
-        : el('span', { className: 'unknown', textContent: s.text, title: 'Not a placeholder from this document' });
+    ...back.parts.map((part) => {
+      if (part.kind === 'text') return document.createTextNode(part.text);
+      return part.kind === 'restored'
+        ? el('span', { className: 'restored', textContent: part.text, title: `Cloud wrote ${part.placeholder}` })
+        : el('span', { className: 'unknown', textContent: part.text, title: 'The cloud model made this placeholder up. It stands for nothing in your document.' });
     }),
   );
+  if (back.invented.length) {
+    answer.append(
+      el('p', {
+        className: 'note warn',
+        textContent: `The answer contains ${back.invented.length} placeholder${back.invented.length === 1 ? '' : 's'} that ${back.invented.length === 1 ? 'was' : 'were'} never in your document. ${back.invented.length === 1 ? 'It is' : 'They are'} shown as written.`,
+      }),
+    );
+  }
 }
 
 function renderReceipt(r: Redaction, cloudSource: string, cloudMs: number): void {
   const occurrences = r.entities.reduce((n, e) => n + e.count, 0);
   const rows: Array<[string, string]> = [
-    ['Scrub', `${state.modelUsed ? 'on_device' : 'patterns only'} · ${state.scrubMs} ms`],
+    ['Scrub', `safe after ${state.patternMs} ms · ${state.modelUsed ? `on-device model done after ${state.scrubMs} ms` : 'no model'}`],
     ['Withheld', `${r.entities.length} values, ${occurrences} occurrences`],
     ['Sent', `${r.redacted.length} of ${state.source.length} characters`],
     ['Answer', `${cloudSource} · ${cloudMs} ms`],
@@ -464,6 +442,23 @@ function renderReceipt(r: Redaction, cloudSource: string, cloudMs: number): void
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
+
+// Clicking any word in the preview hides it everywhere in the document.
+$('preview').addEventListener('click', (ev) => {
+  const target = ev.target as HTMLElement;
+  if (target.closest('.chip, .suspect') || !state.redaction) return;
+  const caret = document.caretPositionFromPoint?.(ev.clientX, ev.clientY);
+  const node = caret?.offsetNode;
+  if (!caret || !node || node.nodeType !== Node.TEXT_NODE) return;
+  const text = node.textContent ?? '';
+  const isWord = (ch: string | undefined) => !!ch && /[\p{L}\p{N}'’_-]/u.test(ch);
+  let from = caret.offset;
+  let to = caret.offset;
+  while (from > 0 && isWord(text[from - 1])) from--;
+  while (to < text.length && isWord(text[to])) to++;
+  const word = text.slice(from, to).replace(/^['’-]+|['’-]+$/g, '');
+  if (word.length >= 2) hideValue(word);
+});
 
 scrubBtn.onclick = () => void scrub();
 sendBtn.onclick = () => void send();

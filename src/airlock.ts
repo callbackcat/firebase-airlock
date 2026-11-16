@@ -565,6 +565,8 @@ export function splitByPlaceholders(text: string): Segment[] {
 /** Put the real values back. Placeholders the vault does not know are left as-is. */
 export interface Restored {
   text: string;
+  /** The same answer in pieces, so a page can show what was put back and what was made up. */
+  parts: Array<{ text: string; kind: 'text' | 'restored' | 'invented'; placeholder?: string }>;
   /** Placeholders that came back exactly as issued. */
   exact: number;
   /** Placeholders that came back changed (other brackets, case, spaces, a possessive inside) and were still matched. */
@@ -587,22 +589,38 @@ const LOOSE_PLACEHOLDER =
 export function restore(text: string, vault: Record<string, string>): Restored {
   const used = new Set<string>();
   const invented: string[] = [];
+  const parts: Restored['parts'] = [];
   let exact = 0;
   let altered = 0;
-  const out = text.replace(LOOSE_PLACEHOLDER, (whole, kind: string | undefined, n: string | undefined, poss: string | undefined, bareKind: string | undefined, bareN: string | undefined) => {
+  let cursor = 0;
+  for (const m of text.matchAll(LOOSE_PLACEHOLDER)) {
+    const [whole, kind, n, poss, bareKind, bareN] = m as unknown as Array<string | undefined>;
     const key = `[${(kind ?? bareKind ?? '').toUpperCase().replace(/[ -]/g, '_')}_${n ?? bareN}]`;
     const value = vault[key];
+    const shaped = /^\[[A-Z]+(?:_[A-Z]+)*_\d+\]$/.test(whole ?? '');
+    // Not one of ours and not shaped like one: ordinary text in brackets.
+    if (value === undefined && !shaped) continue;
+    if (m.index > cursor) parts.push({ text: text.slice(cursor, m.index), kind: 'text' });
+    cursor = m.index + (whole ?? '').length;
     if (value === undefined) {
-      // Only something shaped like one of ours counts as invented.
-      if (/^\[[A-Z]+(?:_[A-Z]+)*_\d+\]$/.test(whole)) invented.push(whole);
-      return whole;
+      invented.push(whole ?? '');
+      parts.push({ text: whole ?? '', kind: 'invented' });
+      continue;
     }
     used.add(key);
     if (whole === key) exact++;
     else altered++;
-    return value + (poss ?? '');
-  });
-  return { text: out, exact, altered, invented, unused: Object.keys(vault).filter((k) => !used.has(k)).length };
+    parts.push({ text: value + (poss ?? ''), kind: 'restored', placeholder: key });
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), kind: 'text' });
+  return {
+    text: parts.map((x) => x.text).join(''),
+    parts,
+    exact,
+    altered,
+    invented,
+    unused: Object.keys(vault).filter((k) => !used.has(k)).length,
+  };
 }
 
 export function rehydrate(text: string, vault: Record<string, string>): string {

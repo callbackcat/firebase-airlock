@@ -3,8 +3,9 @@
 // Answer quality after scrubbing (see src/eval/answers.ts). Uses the cloud
 // model, through the app's own path, on fictional letters only.
 //   ANSWERS_MODE     quality (default), system or infer
-//   ANSWERS_LETTERS  how many of the 20 letters (default 20)
-//   ANSWERS_MAX      cap on cloud calls for this run (default 320)
+//   ANSWERS_LETTERS  how many of the 20 letters (default 12)
+//   ANSWERS_MAX      cap on cloud calls for this run (default 160)
+// Calls are at least seven seconds apart. A quota error stops the run.
 // The full report, answers included, goes to eval-results/ (git-ignored).
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -13,8 +14,8 @@ import process from 'node:process';
 import { ROOT, startChrome, startDevServer } from './chrome.mjs';
 
 const MODE = process.env.ANSWERS_MODE ?? 'quality';
-const LETTERS = Number(process.env.ANSWERS_LETTERS ?? 20);
-const MAX = Number(process.env.ANSWERS_MAX ?? 320);
+const LETTERS = Number(process.env.ANSWERS_LETTERS ?? 12);
+const MAX = Number(process.env.ANSWERS_MAX ?? 160);
 const pct = (k, n) => (n ? `${((100 * k) / n).toFixed(1)}%` : 'n/a');
 
 let server;

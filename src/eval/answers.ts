@@ -1,4 +1,5 @@
-import { detect, redact, restore, type Entity } from '../airlock';
+import { redact, restore, type Entity } from '../airlock';
+import { loadWordLists } from '../wordlists';
 import { initFirebase } from '../firebase';
 import { applyUnhide, hideFirst } from '../hidefirst';
 import { createModels, TASKS, type Models, type Task } from '../models';
@@ -16,12 +17,12 @@ import { HOLDOUT } from './holdout';
  * fictional letters are used, so sending the raw letter is allowed here.
  * Calls are spaced out and capped.
  *
- *   ?mode=quality  answers for raw / a0 / hide-first before and after restores
+ *   ?mode=quality  answers for the raw letter and for hide-first before and after restores
  *   ?mode=system   the current cloud instruction against a stricter one
  *   ?mode=infer    what the cloud model can still guess about the subject
  */
 
-type Condition = 'raw' | 'a0' | 'hf-before' | 'hf-after';
+type Condition = 'raw' | 'hf-before' | 'hf-after';
 
 interface Scored {
   letter: string;
@@ -58,9 +59,10 @@ declare global {
 
 const QUERY = new URLSearchParams(location.search);
 const MODE = QUERY.get('mode') ?? 'quality';
-const LIMIT = Number(QUERY.get('letters') ?? 20);
-const MAX_CALLS = Number(QUERY.get('max') ?? 320);
-const GAP_MS = 2200;
+const LIMIT = Number(QUERY.get('letters') ?? 12);
+const MAX_CALLS = Number(QUERY.get('max') ?? 160);
+/** At least seven seconds between cloud calls. */
+const GAP_MS = 7200;
 const $ = (id: string) => document.getElementById(id)!;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const LETTERS = [...FIXTURES, ...HOLDOUT].slice(0, LIMIT);
@@ -77,6 +79,7 @@ async function run(): Promise<void> {
     if (!ai) throw new Error('No Firebase config.');
     models = createModels(ai);
     await models.prepareOnDevice();
+    await loadWordLists();
 
     let last = 0;
     const cloud = async <T,>(call: () => Promise<T>): Promise<T> => {
@@ -93,14 +96,12 @@ async function run(): Promise<void> {
       progress(`Letter ${n + 1} of ${LETTERS.length}: scrubbing`);
 
       // The four versions of the letter.
-      const a0 = redact(letter.text, (await detect(letter.text, models.extract, models.pieceChars)).entities);
       const first = hideFirst(letter.text, true);
       const before = redact(letter.text, first.entities);
       const afterEntities: Entity[] = applyUnhide(letter.text, first, await models.unhide(letter.text, first.marks));
       const after = redact(letter.text, afterEntities);
       const versions: Record<Condition, { text: string; vault: Record<string, string> }> = {
         raw: { text: letter.text, vault: {} },
-        a0: { text: a0.redacted, vault: a0.vault },
         'hf-before': { text: before.redacted, vault: before.vault },
         'hf-after': { text: after.redacted, vault: after.vault },
       };
@@ -133,6 +134,7 @@ async function run(): Promise<void> {
           }
         } catch (err) {
           row.error = err instanceof Error ? err.message : String(err);
+          // A quota error stops the run at once. Nothing is retried.
           if (/quota|429|RESOURCE_EXHAUSTED|Call cap/i.test(row.error)) {
             report.answers.push(row);
             throw err;
@@ -143,18 +145,18 @@ async function run(): Promise<void> {
 
       if (MODE === 'quality') {
         for (const task of Object.keys(TASKS) as Task[]) {
-          for (const condition of ['raw', 'a0', 'hf-before', 'hf-after'] as Condition[]) {
+          for (const condition of ['raw', 'hf-after', 'hf-before'] as Condition[]) {
             await score(task, condition, false, task === 'explain');
           }
         }
       } else if (MODE === 'system') {
-        for (const condition of ['a0', 'hf-after'] as Condition[]) {
+        for (const condition of ['hf-after'] as Condition[]) {
           await score('actions', condition, false, false);
           await score('actions', condition, true, false);
         }
       } else if (MODE === 'infer') {
         report.guesses ??= [];
-        for (const condition of ['a0', 'hf-after'] as Condition[]) {
+        for (const condition of ['hf-after'] as Condition[]) {
           const v = versions[condition];
           progress(`Letter ${n + 1} of ${LETTERS.length}: guessing from ${condition}`);
           let guess: Record<string, string> = {};
