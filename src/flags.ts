@@ -22,7 +22,7 @@
  *   strictrestore the model may restore only medical and ordinary items, not organisations or places
  *   yesno  the model answers PERSONAL or NOT instead of six labels
  */
-export const DEFAULT_FLAGS = '';
+export const DEFAULT_FLAGS = 'strictrestore';
 
 const raw = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_FLAGS;
 export const FLAGS = new Set(

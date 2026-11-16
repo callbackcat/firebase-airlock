@@ -466,7 +466,7 @@ const unhideSchema = (count: number) => {
 };
 
 /** Which arm of the hide-first comparison runs. a0 is the scrub where the model decides what to hide. */
-const ARM = ((import.meta.env.VITE_ARM as string | undefined) ?? 'a0') as 'a0' | 'a1' | 'a2' | 'a3' | 'a4';
+const ARM = ((import.meta.env.VITE_ARM as string | undefined) ?? 'a3') as 'a0' | 'a1' | 'a2' | 'a3' | 'a4';
 
 const LETTER_KIND: Record<string, string | undefined> = { P: 'PERSON', A: 'ADDRESS', N: 'ID_NUMBER' };
 
