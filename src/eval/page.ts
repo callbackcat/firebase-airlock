@@ -183,6 +183,8 @@ async function run(): Promise<void> {
     let detection: Detection;
     let safeMs: number | undefined;
     let restoredProtected = 0;
+    let blocked: Record<string, string> | undefined;
+    const canariesBefore = canaryLog.fired;
     const arm = models?.arm ?? 'a0';
     if (arm === 'a0') {
       detection = await detect(fixture.text, counting, models?.pieceChars);
@@ -190,6 +192,7 @@ async function run(): Promise<void> {
       // Hide first: safe as soon as the patterns and the marker have run.
       const first = hideFirst(fixture.text, arm !== 'a1');
       safeMs = Math.round(performance.now() - started);
+      blocked = first.blocked;
       let entities = first.entities;
       if ((arm === 'a3' || arm === 'a4') && onDevice === 'ready' && models) {
         const result = await models.unhide(fixture.text, first.marks);
@@ -205,6 +208,9 @@ async function run(): Promise<void> {
     scored.safeMs = safeMs;
     scored.labels = labelLog.splice(0);
     scored.restoredProtected = restoredProtected;
+    scored.blocked = blocked;
+    scored.canaryFired = canaryLog.fired - canariesBefore;
+    scored.sources = Object.fromEntries(detection.entities.map((e) => [e.value, e.source]));
     scored.calls = onDeviceCalls() - callsBefore;
     docs.push(scored);
   }

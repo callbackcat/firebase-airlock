@@ -32,6 +32,12 @@ export interface DocScore {
   quasi: Array<{ value: string; readable: boolean }>;
   /** Characters in the document. */
   chars: number;
+  /** Marked items the model was not asked about, and the rule that kept them hidden. */
+  blocked?: Record<string, string>;
+  /** Un-hide calls for this document whose restores were discarded because a canary came back restorable. */
+  canaryFired?: number;
+  /** Where each hidden value came from. */
+  sources?: Record<string, string>;
   /** The label the un-hide call gave each marked item. */
   labels?: Array<[item: string, label: string]>;
   /** Pattern hits the model tried to restore. Must be 0: only marked items can be restored. */

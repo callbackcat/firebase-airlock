@@ -27,6 +27,8 @@ export interface HideFirst {
   entities: Entity[];
   /** The values hidden only because they were marked. The model may restore these and no others. */
   marks: string[];
+  /** Marked items the model is not asked about, with the rule that keeps them hidden. */
+  blocked: Record<string, string>;
 }
 
 // Words that introduce a person. A marked item that contains one of these
@@ -49,7 +51,12 @@ const EPONYM_TAIL =
  * person an organisation or a medical term. These rules do not depend on it.
  */
 export function neverRestore(masked: string, item: string): boolean {
-  if (ROLE_INSIDE.test(item)) return true;
+  return restoreBlock(masked, item) !== null;
+}
+
+/** Why an item may not be restored, or null when the model may decide. */
+export function restoreBlock(masked: string, item: string): 'role word' | 'next to a hidden name' | 'name list' | null {
+  if (ROLE_INSIDE.test(item)) return 'role word';
   let listed = false;
   if (wordListsLoaded()) {
     for (const word of item.split(/[^\p{L}]+/u)) {
@@ -65,12 +72,12 @@ export function neverRestore(masked: string, item: string): boolean {
     uses++;
     const before = masked.slice(Math.max(0, at - 24), at);
     const after = masked.slice(at + item.length, at + item.length + 24);
-    if (/\[PERSON_\d+\][ \t]$/.test(before) || /^[ \t]\[PERSON_\d+\]/.test(after)) return true;
-    if (ROLE_BEFORE.test(before)) return true;
+    if (/\[PERSON_\d+\][ \t]$/.test(before) || /^[ \t]\[PERSON_\d+\]/.test(after)) return 'next to a hidden name';
+    if (ROLE_BEFORE.test(before)) return 'role word';
     if (EPONYM_TAIL.test(after)) eponyms++;
     at += item.length;
   }
-  return listed && !(uses > 0 && eponyms === uses);
+  return listed && !(uses > 0 && eponyms === uses) ? 'name list' : null;
 }
 
 export function hideFirst(text: string, safeRules: boolean): HideFirst {
@@ -82,6 +89,7 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
   const seen = new Set<string>();
   const marked: Entity[] = [];
   const protectedMarks: Entity[] = [];
+  const blocked: Record<string, string> = {};
   for (const s of findSuspects(masked)) {
     const key = s.text.toLowerCase();
     if (seen.has(key)) continue;
@@ -89,7 +97,9 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
     // Safe rules: an organisation word in the name, a word that is also
     // written in lower case, a word followed by a dose.
     if (safeRules && s.reason === 'name' && (ORG_WORD.test(s.text) || notAName(masked, s.text))) continue;
-    if (s.reason === 'name' && neverRestore(masked, s.text)) {
+    const block = s.reason === 'name' ? restoreBlock(masked, s.text) : null;
+    if (block) {
+      blocked[s.text] = block;
       // Hidden for good: source 'list' is never handed to the model.
       protectedMarks.push({ kind: 'PERSON', value: s.text, source: 'list' });
       continue;
@@ -125,7 +135,7 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
       }
     }
   }
-  return { entities: [...known, ...listed, ...marked], marks: marked.map((m) => m.value) };
+  return { entities: [...known, ...listed, ...marked], marks: marked.map((m) => m.value), blocked };
 }
 
 export interface Unhide {
