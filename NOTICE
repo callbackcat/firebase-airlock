@@ -1,0 +1,79 @@
+Airlock
+Copyright 2026 callbackcat
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes or was built with the following third-party material.
+
+------------------------------------------------------------------------
+Glaze design system (design.how)
+  Files: src/components/glaze/, src/lib/glaze/, glaze.eslint.config.mjs,
+         .claude/skills/glaze/
+  Source: https://github.com/arla6ka/design.how
+  Licence: MIT. Copyright (c) 2026 Arlan Marat
+
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom the
+  Software is furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+------------------------------------------------------------------------
+Fonts
+  None are bundled. The app uses the fonts installed on the reader's system.
+
+------------------------------------------------------------------------
+Word lists (src/data/). Full details and evidence: docs/wordlists.md
+
+  names.txt
+    - US Census Bureau, Frequently Occurring Surnames from the 2010 Census.
+      Public domain (work of the United States Government).
+    - Office for National Statistics, baby names in England and Wales.
+      Source: Office for National Statistics licensed under the Open
+      Government Licence v.3.0. Contains public sector information licensed
+      under the Open Government Licence v3.0.
+    - Central Statistics Office, Ireland, tables VSA50 and VSA60.
+      Licensed under CC BY 4.0. Names were lower-cased, split and merged.
+    - Wikidata, names of people. CC0 1.0.
+
+  common-words.txt
+    - SCOWL (Spell Checker Oriented Word Lists) 2020.12.07.
+      Copyright 2000-2018 by Kevin Atkinson. Permission to use, copy, modify,
+      distribute and sell these word lists, the associated scripts, the
+      output created from the scripts, and its documentation for any purpose
+      is hereby granted without fee, provided that the above copyright notice
+      appears in all copies and that both that copyright notice and this
+      permission notice appear in supporting documentation. Kevin Atkinson
+      makes no representations about the suitability of this array for any
+      purpose. It is provided "as is" without express or implied warranty.
+      The full copyright file, including the notices of the lists SCOWL is
+      built from, is reproduced in docs/wordlists.md.
+    - Google Books Ngram data (version 20200217), (c) Google, licensed under
+      CC BY 3.0, through the lists compiled in
+      github.com/orgtre/google-books-ngram-frequency and
+      github.com/hackerb9/gwordlist. Words were filtered and merged.
+
+  medical.txt
+    - Wikidata, English labels and aliases of medical items. CC0 1.0.
+
+------------------------------------------------------------------------
+Test data that is NOT in this repository
+  Downloaded locally for measurement only, never committed. Details:
+  docs/outside-data.md
+
+    - Nemotron-PII, NVIDIA. CC BY 4.0.
+      https://huggingface.co/datasets/nvidia/Nemotron-PII
+    - Text Anonymization Benchmark, Norsk Regnesentral. MIT.
+      https://github.com/NorskRegnesentral/text-anonymization-benchmark
