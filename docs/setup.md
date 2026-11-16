@@ -89,6 +89,16 @@ The first lines `npm run eval` prints tell you where you stand:
 | `availability() = available` | Ready. |
 | Verdict `NO-MODEL` | The benchmark ran on patterns only. Fix the model first. |
 
+## 6. Open the app
+
+```bash
+npm run dev
+```
+
+Open the address it prints. Load the sample letter: the right-hand pane shows
+what would be sent, and the line under it says when the text became safe and
+when the on-device model finished. The first use may download the model.
+
 ## What I have not verified
 
 I wrote these steps from the Firebase and Chrome documentation and the

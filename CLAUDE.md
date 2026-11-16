@@ -2,7 +2,7 @@
 
 On-device redaction in front of a cloud model, built on Firebase AI Logic
 hybrid inference for Web (Chrome). An entry for the #BuildHybridAI 2026
-hackathon. Read `README.md` first, then `docs/hackathon-checklist.md`.
+hackathon. Read `README.md` first, then `docs/final-results.md`.
 
 ## Rules that do not bend
 
@@ -31,6 +31,7 @@ npm install
 npm test            # unit tests (core + benchmark scoring)
 npm run typecheck
 npm run build
+npm run lint        # Glaze design-system lint on src
 npm run dev         # app at /, benchmark at /eval.html
 npm run eval        # benchmark in a real Chrome; exit 0 pass, 1 marginal/fail, 2 model did not run, 3 harness error
 npm run e2e         # one full run with network-level checks
@@ -46,14 +47,16 @@ Script options are at the top of `scripts/chrome.mjs` (`CHROME_PATH`,
   DOM imports. Keep it that way.
 - `src/models.ts` the only place models are created and called.
 - `src/firebase.ts` app, App Check, AI Logic init from `.env.local`.
-- `src/main.ts`, `index.html` the app.
+- `src/app/`, `index.html` the app, in React on the Glaze design system.
+- `src/components/glaze/`, `src/lib/glaze/` Glaze, copied in. Do not edit.
 - `src/eval/` labelled letters, scoring, benchmark page. `eval.html`.
 - `scripts/` Chrome launcher and the two test runners.
 - `test/` unit tests.
 
 ## Conventions
 
-- TypeScript strict, no framework, no new runtime dependencies without a reason.
+- TypeScript strict. React and Glaze in `src/app/` only; the core stays plain
+  TypeScript. No new runtime dependencies without a reason.
 - Build DOM with `textContent`, never `innerHTML` with document text.
 - UK English in user-facing copy. Plain words.
 - A change to the scrub prompt or patterns is only kept if `npm run eval`
