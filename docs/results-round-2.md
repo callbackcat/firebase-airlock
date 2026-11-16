@@ -1,4 +1,5 @@
 # Airlock round 2: results so far
+n> **Superseded in part.** Round 3 changed the design and has newer numbers: see `results-round-3.md`.
 
 Hand-over for a planning session. Written 15 November 2026. Self-contained,
 but `speed-brief.md`, `speed-results.md`, `research-notes.md`,
