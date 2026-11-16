@@ -1,5 +1,7 @@
 # Round 3 addendum: real documents, medical terms (work stopped part-way)
 
+> The medical work described as unfinished below was completed later the same day: see `results-round-3-medical.md`. The court-judgment section here is final.
+
 Written 16 November 2026, 16:36, when the work was stopped at the owner's
 request. It adds to `results-round-3.md`, whose headline (the first
 measurement of `final-set`) is unchanged. Same machine. Branch `round-2`, not

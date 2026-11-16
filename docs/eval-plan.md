@@ -95,3 +95,22 @@ as they are.
 - `final-set` came out larger than planned: 46 documents and 481 subject
   details.
 - RedactionBench was dropped: about half of it is real documents.
+
+**16 November 2026, after the first measurement of `final-set`.**
+
+- One change was made because of that measurement: a medical safe list
+  decided in code (see `results-round-3-medical.md`). The miss lists of
+  `final-set` were not read; the cause was traced on development sets.
+- A new final set, `final-medical`, was written blind to the change and
+  measured once, five runs.
+- `final-set` was measured a second time, five runs, and is reported as
+  "second measurement after one change prompted by the first". The first
+  measurement remains the headline. `final-set` is no longer a clean set.
+- A real public dataset (court judgments, the Text Anonymization Benchmark)
+  was measured once on the design as frozen before the medical change, under
+  the amended rule 4 in `CLAUDE.md`.
+- The condition "the traps pass" was not met: four of twelve trap names leak
+  with or without the change, because a name that opens a sentence is not
+  underlined. The marker was kept frozen by the owner's decision, so the
+  change was judged on whether it exposed any name the frozen design hides.
+  It exposed none.

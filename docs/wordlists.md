@@ -319,3 +319,18 @@ Tokens before the overlap step, by source (a token can come from several):
 
 Reproduced as required by the SCOWL notice, from `scowl-2020.12.07/Copyright`.
 
+## Medical list (added 16 November 2026)
+
+`src/data/medical.txt`: 91,425 lower-case phrases (medicines, conditions,
+symptoms, tests, procedures, and medical terms named after people), 482 KB
+compressed. Built by `python scripts/build-medical.py` from English labels and
+aliases in Wikidata, licence CC0 1.0 (the evidence is under source 4 above).
+Selection: items with an ATC code, items with an ICD-10 code, items in the
+MeSH disease, technique and drug branches, instances of disease, syndrome,
+symptom, medical sign, medical test and medical procedure, and items named
+after a person that carry a medical identifier. Phrases longer than four
+words or 48 characters are dropped; the drug branch keeps one- and two-word
+entries only. 365 of its single words are also on the name list. Known gaps:
+"Holter monitor", "Hickman line", "Foley catheter". The query service limits
+an anonymous client to one request a minute, so a full rebuild takes about
+15 minutes; raw results are cached under `outside-data/wordlists-raw/`.

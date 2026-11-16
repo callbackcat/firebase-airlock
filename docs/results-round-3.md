@@ -5,7 +5,7 @@
 threshold of 97%, and it keeps 91.5% of medical terms against a threshold of
 95%. Other people's details (100%) and useful facts kept (92.7%) pass.
 
-**Later work** (real court judgments, the medical-terms round, stopped part-way) is in `results-round-3-addendum.md`.
+**Later work:** real court judgments and the trace of hidden medical terms are in `results-round-3-addendum.md`; the medical fix, the blind medical set and the second measurement of this set are in `results-round-3-medical.md`.
 
 Written 16 November 2026. Brief: `claude-code-round3-prompt.md`. Earlier work
 is in `results-round-2.md`; where the two disagree, this file is right.
