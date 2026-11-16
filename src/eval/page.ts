@@ -1,5 +1,7 @@
 import { detect, type Detection, type Extractor } from '../airlock';
 import { applyUnhide, hideFirst } from '../hidefirst';
+import { loadWordLists } from '../wordlists';
+import { on } from '../flags';
 import { initFirebase } from '../firebase';
 import { createModels, onDeviceCalls, type Models } from '../models';
 import { FIXTURES as MAIN_SET, type Fixture } from './fixtures';
@@ -160,6 +162,7 @@ async function run(): Promise<void> {
 
   const docs: DocScore[] = [];
   const FIXTURES = await loadFixtures();
+  if (on('names') || on('nameslc') || on('lc')) await loadWordLists();
   for (const [i, fixture] of FIXTURES.entries()) {
     progress.textContent = `Letter ${i + 1} of ${FIXTURES.length}: ${fixture.title}`;
     let raw = 0;

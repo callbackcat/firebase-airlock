@@ -21,7 +21,7 @@ export const ENTITY_KINDS = [
 
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 /** 'mark': hidden because the marker underlined it, not because a pattern or the model said so. */
-export type EntitySource = 'mark' | 'regex' | 'model' | 'manual';
+export type EntitySource = 'mark' | 'list' | 'regex' | 'model' | 'manual';
 
 export interface Entity {
   kind: EntityKind;
@@ -175,6 +175,60 @@ const DETECTORS: Detector[] = [
   { flag: 'w2', kind: 'POSTCODE', pattern: /\b[ABCEGHJ-NPRSTVXY]\d[A-Z] ?\d[A-Z]\d\b/g },
   { flag: 'w2', kind: 'POSTCODE', pattern: /\b(?:[AC-FHKNPRTV-Y]\d{2}|D6W) ?[0-9AC-FHKNPRTV-Y]{4}\b/g },
   { flag: 'w2', kind: 'POSTCODE', pattern: /\b[A-Z]{2} (\d{5}(?:-\d{4})?)\b/g, group: true },
+  // Technical identifiers. Letters rarely hold them; support tickets, forms
+  // and logs do. All are pattern hits, so the model can never restore them.
+  { flag: 'tech', kind: 'OTHER', pattern: /\b[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}\b/g },
+  {
+    flag: 'tech',
+    kind: 'OTHER',
+    pattern: /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.]*\d)/g,
+  },
+  {
+    // IPv6: five or more groups, or a "::" short form. Three groups would match a time of day.
+    flag: 'tech',
+    kind: 'OTHER',
+    pattern:
+      /(?<![0-9A-Fa-f:])(?:(?:[0-9A-Fa-f]{1,4}:){4,7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,6}:(?:[0-9A-Fa-f]{1,4}:){0,5}[0-9A-Fa-f]{1,4})(?![0-9A-Fa-f:])/g,
+  },
+  // A signed web token: three base64 parts, the first starting "eyJ".
+  { flag: 'tech', kind: 'OTHER', pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}/g },
+  {
+    // Keys with a well-known prefix.
+    flag: 'tech',
+    kind: 'OTHER',
+    pattern:
+      /\b(?:(?:sk|pk|rk)[-_](?:live|test|proj)?[-_]?[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,})\b/g,
+  },
+  {
+    // A cookie header: everything after the label.
+    flag: 'tech',
+    kind: 'OTHER',
+    pattern: /\b(?:Set-)?Cookie\s*:\s*([^\r\n]{6,300})/g,
+    group: true,
+  },
+  {
+    // name=value where the name says it is a credential: "auth_token=…", "sessionid=…".
+    flag: 'tech',
+    kind: 'OTHER',
+    pattern: /\b[A-Za-z_.-]*(?:token|session|sess|sid|auth|cookie|secret|passw(?:or)?d|apikey|api_key)[A-Za-z_.-]*=[^\s;,"'<>]{6,}/gi,
+  },
+  {
+    // A value introduced by a label: "password: Tr0ub4dor", "PIN is 4471", "CVC 318".
+    flag: 'tech',
+    kind: 'OTHER',
+    pattern:
+      /\b(?:password|passcode|passphrase|pass ?code|pwd|token|secret|api[ _-]?key|access key|private key|security code|cvc|cvv|cvv2|pin)\b(?: (?:is|was|code|number))?\s*[:=]?\s*["'“]?([^\s"'”,;]{3,80})/gi,
+    group: true,
+    // Not an ordinary word after the label ("password reset", "PIN number"): it must hold a digit or mix cases.
+    accept: (v) => /\d/.test(v) || (/[a-z]/.test(v) && /[A-Z]/.test(v.slice(1))) || /[^A-Za-z.]/.test(v),
+  },
+  {
+    // A long unbroken run of letters and digits: a key, a hash, a device or session id.
+    flag: 'tech',
+    kind: 'OTHER',
+    pattern: /(?<![A-Za-z0-9_-])[A-Za-z0-9][A-Za-z0-9_-]{18,}[A-Za-z0-9](?![A-Za-z0-9_-])/g,
+    accept: (v) => v.replace(/\D/g, '').length >= 3 && v.replace(/[^A-Za-z]/g, '').length >= 3 && !/^(?:[a-z]+-)+[a-z]+-?\d{1,4}$/.test(v),
+  },
   // UK vehicle registration, current format.
   { kind: 'OTHER', pattern: /\b[A-Z]{2}\d{2} ?[A-Z]{3}\b/g },
   {
@@ -203,7 +257,41 @@ const DETECTORS: Detector[] = [
   },
 ];
 
+/** True when a document is typed almost without capitals, as a chat or a hurried form is. */
+export function isLowerCaseText(text: string): boolean {
+  const letters = text.replace(/[^\p{L}]/gu, '');
+  if (letters.length < 80) return false;
+  return letters.replace(/[^\p{Lu}]/gu, '').length / letters.length < 0.01;
+}
+
+/**
+ * The patterns lean on capitals: a postcode, a titled name, a street. In a
+ * document typed without any, they are also run over a copy with every word
+ * capitalised and every code in capitals. The copy has the same length, and
+ * hiding ignores case, so what is found there is hidden in the original.
+ */
+function recased(text: string): string[] {
+  const title = text.replace(/(?<![\p{L}\p{N}'’])\p{Ll}/gu, (c) => c.toUpperCase());
+  const codes = text.replace(/(?<![\p{L}\p{N}])(?=[\p{L}\p{N}]*\d)[\p{L}\p{N}]+/gu, (c) => c.toUpperCase());
+  return [title, codes];
+}
+
 export function detectWithRegex(text: string): Entity[] {
+  const found = detectIn(text);
+  if (on('lcdoc') && isLowerCaseText(text)) {
+    const seen = new Set(found.map((e) => e.value.toLowerCase()));
+    for (const copy of recased(text)) {
+      for (const e of detectIn(copy)) {
+        if (seen.has(e.value.toLowerCase())) continue;
+        seen.add(e.value.toLowerCase());
+        found.push(e);
+      }
+    }
+  }
+  return found;
+}
+
+function detectIn(text: string): Entity[] {
   const found: Entity[] = [];
   for (const d of DETECTORS) {
     if (d.flag && !on(d.flag)) continue;
@@ -395,7 +483,7 @@ function matcher(value: string, flags = 'iu'): RegExp {
   );
 }
 
-const SOURCE_RANK: Record<EntitySource, number> = { manual: 0, regex: 1, model: 2, mark: 3 };
+const SOURCE_RANK: Record<EntitySource, number> = { manual: 0, regex: 1, model: 2, list: 3, mark: 4 };
 
 export function redact(text: string, entities: Entity[]): Redaction {
   // One entry per distinct value. Manual beats regex beats model on kind.

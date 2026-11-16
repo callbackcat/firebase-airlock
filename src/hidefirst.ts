@@ -8,7 +8,9 @@ import {
   type Entity,
   type RawEntity,
 } from './airlock';
+import { on } from './flags';
 import { findSuspects, notAName } from './suspects';
+import { isCommonWord, isListedName, wordListsLoaded } from './wordlists';
 
 /**
  * Hide first. Everything the patterns find and everything the marker
@@ -44,7 +46,36 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
     if (safeRules && s.reason === 'name' && (ORG_WORD.test(s.text) || notAName(masked, s.text))) continue;
     marked.push({ kind: s.reason === 'number' ? 'ID_NUMBER' : 'OTHER', value: s.text, source: 'mark' });
   }
-  return { entities: [...known, ...marked], marks: marked.map((m) => m.value) };
+  // Name list: a word that is a known given name or surname. The capital-letter
+  // rule above already marks a capitalised one; what the list adds is a name
+  // typed without a capital. A list hit is hidden and stays hidden: the model
+  // may restore marks, never these.
+  const listed: Entity[] = [];
+  if (wordListsLoaded() && (on('names') || on('nameslc') || on('lc'))) {
+    const blank = masked.replace(/\[[A-Z]+(?:_[A-Z]+)*_\d+\]/g, (m) => ' '.repeat(m.length));
+    const chatLike = (blank.match(/^[ \t]*[\p{L}][\p{L}'’ -]{1,24}:(?=\s)/gmu) ?? []).length >= 4;
+    for (const m of blank.matchAll(/(?<![\p{L}\p{N}'’@._-])\p{L}{3,}(?![\p{L}\p{N}@_])/gu)) {
+      const word = m[0];
+      const key = word.toLowerCase();
+      if (seen.has(key)) continue;
+      const lower = word === key;
+      // A short word straight after a number or a slash is a unit: "30 min", "mmol/mol".
+      const unit = /[\d/]\s?$/.test(blank.slice(Math.max(0, m.index - 2), m.index));
+      const name = isListedName(word) && !isCommonWord(word) && !unit;
+      if (name && (on('names') || (on('nameslc') && lower))) {
+        seen.add(key);
+        // A capitalised one was marked above; take it out of the model's hands.
+        const at = marked.findIndex((e) => e.value.toLowerCase() === key);
+        if (at >= 0) marked.splice(at, 1);
+        listed.push({ kind: 'PERSON', value: word, source: 'list' });
+      } else if (on('lc') && chatLike && lower && !isCommonWord(word) && !ORG_WORD.test(word)) {
+        // Chat-like text: a lower-case word that is no ordinary English word. The model may restore it.
+        seen.add(key);
+        marked.push({ kind: 'OTHER', value: word, source: 'mark' });
+      }
+    }
+  }
+  return { entities: [...known, ...listed, ...marked], marks: marked.map((m) => m.value) };
 }
 
 export interface Unhide {

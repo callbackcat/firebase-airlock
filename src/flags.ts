@@ -14,6 +14,11 @@
  *   w2  postcodes beyond the UK: Canada, Ireland, US ZIP
  *   adj a capitalised word directly before a hidden person is marked, even at the start of a sentence
  *   csv labels written as comma-separated words instead of a JSON object
+ *   tech  patterns for technical identifiers: IP and MAC addresses, tokens, keys, cookies, secrets after a label
+ *   names a word from the name list is hidden in any letter case, and the model may not restore it
+ *   nameslc the same, but only for words written without a capital
+ *   lc    in chat-like text, lower-case words that are not ordinary English words are marked
+ *   lcdoc in a document typed without capitals, the patterns also run over a capitalised copy
  *   yesno  the model answers PERSONAL or NOT instead of six labels
  */
 export const DEFAULT_FLAGS = '';

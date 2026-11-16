@@ -132,7 +132,16 @@ export function findSuspects(outgoing: string): Suspect[] {
   const openers: Suspect[] = [];
   for (const m of text.matchAll(/(?<![\p{L}\p{N}'’])\p{Lu}[\p{L}'’-]*(?![\p{L}\p{N}])/gu)) {
     const word = m[0];
-    if (word.length < 2 || ORDINARY.has(word.toLowerCase().replace(/['’]s$/, ''))) continue;
+    if (word.length < 2) continue;
+    if (ORDINARY.has(word.toLowerCase().replace(/['’]s$/, ''))) {
+      // "April [PERSON_2]", "Dear May,": an everyday word standing where a first name stands.
+      const next = outgoing.slice(m.index + word.length, m.index + word.length + 14);
+      const prev = outgoing.slice(Math.max(0, m.index - 6), m.index);
+      const asName = /^ \[PERSON_\d+\]/.test(next) || (/(?:Dear|Hi|Hello) $/.test(prev) && /^[,\n\r]/.test(next));
+      if (!(on('adj') && asName && word.length >= 3 && !/^(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof|Sir|Dear)$/.test(word))) continue;
+      found.push({ start: m.index, end: m.index + word.length, text: word, reason: 'name' });
+      continue;
+    }
     if (on('m2') && notAName(outgoing, word)) continue;
     // An ordinary sentence opening: "We are writing", "Please pay".
     const head = text.slice(0, m.index);
