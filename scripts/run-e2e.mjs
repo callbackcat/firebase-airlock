@@ -44,11 +44,13 @@ try {
   await page.goto(server.url, { waitUntil: 'networkidle0' });
   console.log(await promptApiState(page));
   const tid = (id) => `[data-testid="${id}"]`;
-  const firebase = !(await page.$eval(tid('ask-note'), (n) => n.textContent)).includes('cloud step is off');
+  const firebase = (await page.$eval(tid('app'), (n) => n.dataset.cloud)) === 'on';
 
   // Scrub once online so the model is initialised (first use may download it).
   const scrub = async () => {
     const before = Number(await page.$eval(tid('app'), (n) => n.dataset.run));
+    await page.click(tid('step-1'));
+    await page.waitForSelector(tid('load-sample'));
     await page.click(tid('load-sample'));
     await page.waitForFunction(
       (sel, was) => {
@@ -84,6 +86,8 @@ try {
   let restored = [];
   let sendNote = '';
   phase = 'cloud call';
+  await page.click(tid('continue'));
+  await page.waitForSelector(tid('ask-explain'));
   const canSend = await page.$eval(tid('ask-explain'), (b) => !b.disabled);
   if (canSend) {
     await page.click(tid('ask-explain'));

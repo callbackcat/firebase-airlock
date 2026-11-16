@@ -1,6 +1,6 @@
 // node scripts/run-screenshots.mjs
 //
-// Saves a screenshot of every state of the app, light and dark, to
+// Saves a screenshot of every state of the app to
 // docs/screenshots/. Uses the fictional sample letter and the development
 // server's ?demo= switch to force states that are hard to reach by hand.
 // SHOT_SIZE=1920x1080 changes the window (default 1440x900).
@@ -44,6 +44,7 @@ try {
       tid('source-input'),
       text,
     );
+    await page.waitForSelector(`${tid('hide-now')}:not([disabled])`);
     await page.click(tid('hide-now'));
   };
   const settled = () => page.waitForFunction((sel) => ['done', 'no-model'].includes(document.querySelector(sel).dataset.phase), { timeout: 180_000 }, tid('app'));
@@ -55,7 +56,7 @@ try {
   });
   void sample;
 
-  for (const theme of ['light', 'dark']) {
+  for (const theme of ['light']) {
     await open('', theme);
     await shot('01-empty', theme);
 
@@ -76,6 +77,9 @@ try {
     });
     await sleep(400);
 
+    await page.click(tid('continue'));
+    await page.waitForSelector(tid('ask-explain'));
+    await shot('05a-ask', theme);
     await page.click(tid('ask-explain'));
     await page.waitForFunction((a, e) => document.querySelector(a) || document.querySelector(e), { timeout: 120_000 }, tid('answer-card'), tid('cloud-error'));
     await shot('05-answer', theme);
@@ -113,6 +117,8 @@ try {
     await open('?demo=cloud-error', theme);
     await page.click(tid('load-sample'));
     await settled();
+    await page.click(tid('continue'));
+    await page.waitForSelector(tid('ask-explain'));
     await page.click(tid('ask-explain'));
     await page.waitForSelector(tid('cloud-error'));
     await shot('12-cloud-error', theme);
