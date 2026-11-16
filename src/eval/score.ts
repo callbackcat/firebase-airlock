@@ -32,6 +32,8 @@ export interface DocScore {
   quasi: Array<{ value: string; readable: boolean }>;
   /** Characters in the document. */
   chars: number;
+  /** Pattern hits the model tried to restore. Must be 0: only marked items can be restored. */
+  restoredProtected?: number;
   /** Milliseconds until the text was safe to send. Equal to `ms` unless the scrub hides first. */
   safeMs?: number;
   /** On-device calls made for this letter. */

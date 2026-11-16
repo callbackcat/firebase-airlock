@@ -175,6 +175,7 @@ async function run(): Promise<void> {
     const callsBefore = onDeviceCalls();
     let detection: Detection;
     let safeMs: number | undefined;
+    let restoredProtected = 0;
     const arm = models?.arm ?? 'a0';
     if (arm === 'a0') {
       detection = await detect(fixture.text, counting, models?.pieceChars);
@@ -186,12 +187,16 @@ async function run(): Promise<void> {
       if ((arm === 'a3' || arm === 'a4') && onDevice === 'ready' && models) {
         const result = await models.unhide(fixture.text, first.marks);
         raw += result.restore.length;
+        // The model may only restore marked items. Anything else it names is counted and ignored.
+        const marks = new Set(first.marks);
+        restoredProtected = result.restore.filter((v) => !marks.has(v)).length;
         entities = applyUnhide(fixture.text, first, result);
       }
       detection = { entities, modelUsed: true };
     }
     const scored = scoreDoc(fixture, detection, Math.round(performance.now() - started), raw);
     scored.safeMs = safeMs;
+    scored.restoredProtected = restoredProtected;
     scored.calls = onDeviceCalls() - callsBefore;
     docs.push(scored);
   }

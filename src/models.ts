@@ -34,11 +34,12 @@ const MODEL_KINDS = ['PERSON', 'ADDRESS', 'EMAIL', 'PHONE', 'DOB', 'ID_NUMBER', 
 const MAX_ENTITIES = 40;
 // How long one on-device call may take before it is cancelled. The limit
 // follows the machine: five times its usual call, never under 15 s (a fast
-// laptop answers in about 3 s) and never over 2 minutes. Until one call has
-// finished there is nothing to go on, so the first is given a minute.
+// laptop answers in about 3 s) and never over 30 s. Every on-device call has
+// this limit. When it runs out the call is cancelled and whatever it was
+// asked about stays hidden: the scrub fails closed, it does not hang.
 const MIN_TIMEOUT_MS = 15_000;
-const MAX_TIMEOUT_MS = 120_000;
-const FIRST_TIMEOUT_MS = 60_000;
+const MAX_TIMEOUT_MS = 30_000;
+const FIRST_TIMEOUT_MS = 30_000;
 /** A first pass slower than this means a slow machine: skip the second pass. */
 const SLOW_FIRST_PASS_MS = 20_000;
 
@@ -866,6 +867,13 @@ export function createModels(ai: AI): Models {
   });
   let cloudCount = 0;
 
+  /** The same 30 s limit for the calls that do not go through callJson. */
+  const limited = <T,>(call: Promise<T>): Promise<T> =>
+    Promise.race([
+      call,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('On-device call took longer than 30 s.')), MAX_TIMEOUT_MS)),
+    ]);
+
   return {
     arm: ARM,
 
@@ -938,10 +946,10 @@ export function createModels(ai: AI): Models {
 
     async warmUp() {
       try {
-        const first = await warm.generateContent('Hi');
+        const first = await limited(warm.generateContent('Hi'));
         assertOnDevice(first.response.inferenceSource);
         const started = performance.now();
-        await warm.generateContent('Hi');
+        await limited(warm.generateContent('Hi'));
         return performance.now() - started;
       } catch (err) {
         console.warn('Warm-up call failed', err);
@@ -1056,10 +1064,10 @@ export function createModels(ai: AI): Models {
 
     async transcribe(image) {
       const data = await toBase64(image);
-      const result = await vision.generateContent([
+      const result = await limited(vision.generateContent([
         'Transcribe all the text in this image exactly. Keep the line breaks. Output only the text.',
         { type: 'inlineData', inlineData: { data, mimeType: image.type } },
-      ]);
+      ]));
       assertOnDevice(result.response.inferenceSource);
       return result.response.text();
     },
