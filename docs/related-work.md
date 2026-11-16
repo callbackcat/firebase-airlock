@@ -6,7 +6,7 @@ several times. This page says what Airlock shares with that work and the
 narrow thing it adds.
 
 Numbers below were re-checked against each paper's abstract on 16 November
-2026. Where a figure in `research-notes.md` could not be confirmed from the
+2026. Where a figure in `archive/research-notes.md` could not be confirmed from the
 abstract, it is left out here.
 
 ## Earlier systems
@@ -30,7 +30,7 @@ abstract, it is left out here.
   things back. That is Philter's design, applied to letters.
 - **The known weaknesses.** Published results on text the authors did not
   write are well below results on their own data. Ours follow the same
-  pattern: see `results-round-2.md` for the gap.
+  pattern: see `archive/results-round-2.md` for the gap.
 
 ## What is particular to Airlock
 

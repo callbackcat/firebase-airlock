@@ -99,7 +99,7 @@ as they are.
 **16 November 2026, after the first measurement of `final-set`.**
 
 - One change was made because of that measurement: a medical safe list
-  decided in code (see `results-round-3-medical.md`). The miss lists of
+  decided in code (see `archive/results-round-3-medical.md`). The miss lists of
   `final-set` were not read; the cause was traced on development sets.
 - A new final set, `final-medical`, was written blind to the change and
   measured once, five runs.

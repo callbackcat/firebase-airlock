@@ -329,3 +329,33 @@ Run on 15 November 2026, Windows 11, Python 3.12, pyarrow 21, Node 22:
 Not run: the benchmark itself on these files. Nothing in `src/eval/` reads
 them yet. `npm test`, `npm run typecheck` and `npm run eval` were not run for
 this change. The script was not tried on macOS or Linux.
+
+## Court judgments (real documents)
+
+**Text Anonymization Benchmark (TAB)** by Norsk Regnesentral:
+<https://github.com/NorskRegnesentral/text-anonymization-benchmark>
+
+Judgments of the European Court of Human Rights with every personal detail
+labelled by hand. Licence: MIT (the repository's `LICENSE.txt` and README
+agree). Used at commit `558e09e`.
+
+This is real text about real people, so it is used under rule 4 of
+`CLAUDE.md`: downloaded into the git-ignored `outside-data/tab/`, on-device
+scrub only, no cloud call on it, and no text or name from it written to this
+repository.
+
+```bash
+python scripts/fetch-tab.py
+```
+
+- 100 documents from the test split with a fixed seed (20261116) are the
+  measured set; 10 from the train split were used to check the mapping.
+- Labels: DIRECT must be hidden; QUASI is counted with no pass or fail;
+  NO_MASK should stay readable.
+- More than one annotator: a detail is DIRECT if any annotator marked it
+  DIRECT, otherwise QUASI if any marked it QUASI, otherwise NO_MASK.
+- An entity counts as hidden only when every written form of it is hidden.
+- In the measured set: 228 direct entities (112 people, 110 codes, 5 dates,
+  1 organisation), about 40 quasi-identifiers a document.
+
+Results are in `final-results.md`.

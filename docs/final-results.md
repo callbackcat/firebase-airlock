@@ -269,14 +269,14 @@ beside it.
 | File in `docs/` | What it holds |
 |---|---|
 | `eval-plan.md` | Sets, thresholds, stopping rule, and every change to the plan with its reason |
-| `results-round-3.md` | The first `final-set` measurement and how the design got there |
-| `results-round-3-addendum.md` | Court judgments; why medical terms are hidden |
-| `results-round-3-medical.md` | The medical fix, `final-medical`, the second `final-set` measurement |
-| `results-round-2.md` | The first outside-text measurement and the hide-first comparison |
-| `benchmark.md`, `speed-results.md` | The earlier rounds |
+| `archive/results-round-3.md` | The first `final-set` measurement and how the design got there |
+| `archive/results-round-3-addendum.md` | Court judgments; why medical terms are hidden |
+| `archive/results-round-3-medical.md` | The medical fix, `final-medical`, the second `final-set` measurement |
+| `archive/results-round-2.md` | The first outside-text measurement and the hide-first comparison |
+| `archive/benchmark.md`, `archive/speed-results.md` | The earlier rounds |
 | `outside-data.md`, `wordlists.md` | Datasets and word lists, with licences |
 | `related-work.md`, `firebase-sdk-feedback.md` | Drafts, not posted |
-| `round-3-table.md` | Raw result rows |
+| `archive/round-3-table.md` | Raw result rows |
 
 Code is on branch `round-2`, not merged, not pushed. The repository is still
 private.
