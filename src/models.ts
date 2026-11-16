@@ -579,6 +579,10 @@ export interface Models {
   extract: Extractor;
   transcribe(image: File): Promise<string>;
   ask(task: Task, redacted: string, strict?: boolean): Promise<{ text: string; source: string }>;
+  /** The same cloud call with the person's own question in place of a preset task. */
+  askCustom(question: string, redacted: string): Promise<{ text: string; source: string }>;
+  /** Where the SDK says the last on-device call ran, or undefined before the first one. */
+  onDeviceSource(): string | undefined;
   /** A plain cloud call with no system instruction. For test tooling: judging answers, guessing attributes. */
   cloudPlain(prompt: string): Promise<string>;
   /** Cloud calls made since the page loaded. */
@@ -704,6 +708,7 @@ export function createModels(ai: AI): Models {
     try {
       const result = await Promise.race([target.model.generateContent(text, { signal: abort.signal }), timeout]);
       assertOnDevice(result.response.inferenceSource);
+      lastOnDeviceSource = result.response.inferenceSource;
       const parsed: unknown = constraint instanceof RegExp ? result.response.text() : JSON.parse(result.response.text());
       durations.push(performance.now() - started);
       if (durations.length > 20) durations.shift();
@@ -937,6 +942,7 @@ export function createModels(ai: AI): Models {
     inCloudParams: { model: (import.meta.env.VITE_CLOUD_MODEL as string | undefined) ?? 'gemini-3.5-flash-lite' },
   });
   let cloudCount = 0;
+  let lastOnDeviceSource: string | undefined;
 
   /** The same 30 s limit for the calls that do not go through callJson. */
   const limited = <T,>(call: Promise<T>): Promise<T> =>
@@ -949,6 +955,13 @@ export function createModels(ai: AI): Models {
     arm: ARM,
 
     cloudCalls: () => cloudCount,
+    onDeviceSource: () => lastOnDeviceSource,
+
+    async askCustom(question, redacted) {
+      cloudCount++;
+      const result = await cloud.generateContent(`${question.trim()}\n\nDocument:\n\n${redacted}`);
+      return { text: result.response.text(), source: result.response.inferenceSource ?? 'unknown' };
+    },
 
     async cloudPlain(prompt) {
       cloudCount++;

@@ -43,17 +43,23 @@ try {
 
   await page.goto(server.url, { waitUntil: 'networkidle0' });
   console.log(await promptApiState(page));
-  const pills = () => page.$$eval('#status .pill', (ps) => ps.map((p) => p.textContent));
-  const firebase = (await pills()).some((t) => t.includes('connected'));
+  const tid = (id) => `[data-testid="${id}"]`;
+  const firebase = !(await page.$eval(tid('ask-note'), (n) => n.textContent)).includes('cloud step is off');
 
   // Scrub once online so the model is initialised (first use may download it).
   const scrub = async () => {
-    await page.$eval('#scrub-note', (n) => (n.textContent = ''));
-    await page.click('#sample');
-    await page.waitForFunction(() => /finished after|did not run/.test(document.getElementById('scrub-note').textContent), {
-      timeout: Number(process.env.EVAL_TIMEOUT_MIN ?? 45) * 60_000,
-    });
-    return page.$eval('#scrub-note', (n) => n.textContent);
+    const before = Number(await page.$eval(tid('app'), (n) => n.dataset.run));
+    await page.click(tid('load-sample'));
+    await page.waitForFunction(
+      (sel, was) => {
+        const app = document.querySelector(sel);
+        return Number(app.dataset.run) > was && (app.dataset.phase === 'done' || app.dataset.phase === 'no-model');
+      },
+      { timeout: Number(process.env.EVAL_TIMEOUT_MIN ?? 45) * 60_000 },
+      tid('app'),
+      before,
+    );
+    return page.$eval(tid('status-line'), (n) => n.textContent);
   };
   phase = 'warm-up scrub';
   const warm = await scrub();
@@ -66,33 +72,38 @@ try {
   await page.setOfflineMode(false);
   const offlineOk = offline.includes('on-device model finished');
 
-  const hiddenValues = await page.$$eval('#entities tbody td.v:not(.off)', (tds) => tds.map((td) => td.textContent));
-  const outgoing = await page.$eval('#preview', (n) => n.textContent);
+  // The hidden values are listed in the vault sheet.
+  await page.click(tid('vault-open'));
+  await page.waitForSelector(tid('vault-value'));
+  const hiddenValues = await page.$$eval(tid('vault-value'), (ns) => ns.map((n) => n.textContent));
+  await page.keyboard.press('Escape');
+  const outgoing = await page.$eval(tid('outgoing-text'), (n) => n.textContent);
 
   // Send the scrubbed text to the cloud.
   let answer = '';
   let restored = [];
   let sendNote = '';
   phase = 'cloud call';
-  const canSend = await page.$eval('#send', (b) => !b.disabled);
+  const canSend = await page.$eval(tid('ask-explain'), (b) => !b.disabled);
   if (canSend) {
-    await page.click('#send');
-    await page.waitForFunction(
-      () => document.querySelector('#receipt dd') || /failed|Blocked/.test(document.getElementById('send-note').textContent),
-      { timeout: 120_000 },
-    );
-    sendNote = await page.$eval('#send-note', (n) => n.textContent);
-    answer = await page.$eval('#answer', (n) => n.textContent);
-    restored = await page.$$eval('#answer .restored', (ns) => ns.map((n) => n.textContent));
+    await page.click(tid('ask-explain'));
+    await page.waitForFunction((a, e) => document.querySelector(a) || document.querySelector(e), { timeout: 120_000 }, tid('answer-card'), tid('cloud-error'));
+    sendNote = (await page.$(tid('cloud-error'))) ? await page.$eval(tid('cloud-error'), (n) => n.textContent) : '';
+    if (!sendNote) {
+      answer = await page.$eval(tid('answer-restored'), (n) => n.textContent);
+      restored = await page.$$eval(tid('answer-restored-value'), (ns) => ns.map((n) => n.textContent));
+    }
   } else {
-    sendNote = await page.$eval('#send-note', (n) => n.textContent);
+    sendNote = await page.$eval(tid('ask-note'), (n) => n.textContent);
   }
   phase = 'after';
 
   const duringScrub = requests.filter((r) => r.phase === 'offline scrub');
   const cloudCalls = requests.filter((r) => r.phase === 'cloud call' && r.body);
   const leaked = hiddenValues.filter((v) => cloudCalls.some((r) => r.body.includes(v)));
-  const gotAnswer = Boolean(answer) && !/will appear here/.test(answer);
+  const gotAnswer = Boolean(answer);
+  // The only traffic allowed off this machine is to Firebase and the Google APIs it calls.
+  const otherHosts = [...new Set(requests.map((r) => host(r.url)))].filter((h) => !/(^|\.)(googleapis\.com|firebaseio\.com|firebaseapp\.com|google\.com|gstatic\.com)$/.test(h));
 
   const checks = [
     ['Firebase AI Logic is configured', firebase, firebase ? '' : 'no VITE_FIREBASE_CONFIG'],
@@ -104,6 +115,7 @@ try {
     ['No hidden value appears in any cloud request body', cloudCalls.length > 0 && leaked.length === 0, leaked.join(' · ')],
     ['An answer came back', gotAnswer, sendNote],
     ['Real values were restored locally', restored.length > 0, restored.join(' · ')],
+    ['No request to any third-party origin', otherHosts.length === 0, otherHosts.join(', ')],
   ];
 
   console.log('');
