@@ -590,6 +590,40 @@ function assertOnDevice(source: string | undefined): void {
   }
 }
 
+/**
+ * Canaries. Every un-hide call carries two made-up names of people who are
+ * not in the document. A sound answer never calls them safe to show. If one
+ * comes back restorable, the call was confused or was talked into something
+ * by the document, and none of its restores are used.
+ */
+const CANARIES = [
+  'Ottoline Fairweather',
+  'Kwabena Lindqvist',
+  'Marisol Achterberg',
+  'Thaddeus Okonkwo',
+  'Ingrid Vasquez-Hale',
+  'Leopold Brathwaite',
+  'Saoirse Nakagawa',
+  'Emeka Pettersson',
+];
+/** How many un-hide calls were made and how many were thrown away because a canary came back restorable. */
+export const canaryLog = { calls: 0, fired: 0, malformed: 0 };
+
+function pickCanaries(text: string): string[] {
+  const lower = text.toLowerCase();
+  const free = CANARIES.filter((c) => !c.toLowerCase().split(/[ -]/).some((w) => lower.includes(w)));
+  const start = text.length % Math.max(1, free.length);
+  return [free[start], free[(start + 3) % Math.max(1, free.length)]].filter((c, i, a): c is string => !!c && a.indexOf(c) === i);
+}
+
+/** The items with the canaries placed among them: one a third of the way in, one at the end. */
+function withCanaries(items: string[], canaries: string[]): string[] {
+  const out = [...items];
+  if (canaries[0]) out.splice(Math.floor(items.length / 3), 0, canaries[0]);
+  if (canaries[1]) out.push(canaries[1]);
+  return out;
+}
+
 /** Every label the un-hide call has given, newest last. For the benchmark report. */
 export const labelLog: Array<[item: string, label: string]> = [];
 
@@ -941,18 +975,27 @@ export function createModels(ai: AI): Models {
         const lower = lines.map((l) => l.toLowerCase());
         for (let at = 0; at < marks.length; at += LABEL_BATCH) {
           const batch = marks.slice(at, at + LABEL_BATCH);
-          const listed = batch.map((c, i) => `${i + 1}. ${c} | ${twoContexts(lines, lower, c).join(' / ')}`).join('\n');
+          const canaries = pickCanaries(text);
+          const order = withCanaries(batch, canaries);
+          const listed = order.map((c, i) => `${i + 1}. ${c} | ${twoContexts(lines, lower, c).join(' / ')}`).join('\n');
           try {
             const answer = (await callJson(lineUnhider, `Items:\n${listed}`, {
               type: 'object',
-              properties: Object.fromEntries(batch.map((_, i) => [String(i + 1), { type: 'string', enum: UNHIDE_LABELS }])),
-              required: batch.map((_, i) => String(i + 1)),
+              properties: Object.fromEntries(order.map((_, i) => [String(i + 1), { type: 'string', enum: UNHIDE_LABELS }])),
+              required: order.map((_, i) => String(i + 1)),
               additionalProperties: false,
             })) as Record<string, string>;
-            batch.forEach((item, i) => {
-              const label = answer[String(i + 1)] ?? 'UNSURE';
+            canaryLog.calls++;
+            const labelFor = new Map(order.map((item, i) => [item, answer[String(i + 1)]]));
+            const malformed = order.some((item) => !UNHIDE_LABELS.includes(labelFor.get(item) ?? ''));
+            const tripped = canaries.some((c) => RESTORABLE.has(labelFor.get(c) ?? ''));
+            if (malformed) canaryLog.malformed++;
+            if (tripped) canaryLog.fired++;
+            batch.forEach((item) => {
+              const label = malformed ? 'UNSURE' : (labelFor.get(item) ?? 'UNSURE');
+              labelLog.push([item, label]);
               labelOf.set(item, label);
-              restoreVotes.set(item, RESTORABLE.has(label));
+              restoreVotes.set(item, !tripped && RESTORABLE.has(label));
             });
           } catch (err) {
             console.warn('Un-hide call failed, this batch stays hidden', err);
@@ -974,17 +1017,28 @@ export function createModels(ai: AI): Models {
             `<<<DOCUMENT\n${masked}\nDOCUMENT>>>\n\nItems:\n${listed}`,
             unhideSchema(order.length),
           )) as { labels?: Record<string, string>; missed?: unknown[] };
-          return {
-            labels: order.map((_, i) => answer.labels?.[String(i + 1)] ?? 'UNSURE'),
-            missed: Array.isArray(answer.missed) ? answer.missed : [],
-          };
+          // A missing, malformed or short reply restores nothing.
+          const labels = order.map((_, i) => answer.labels?.[String(i + 1)]);
+          if (labels.some((l) => typeof l !== 'string' || !UNHIDE_LABELS.includes(l))) {
+            canaryLog.malformed++;
+            return { labels: order.map(() => 'UNSURE'), missed: [] };
+          }
+          return { labels: labels as string[], missed: Array.isArray(answer.missed) ? answer.missed : [] };
         };
         try {
-          const first = await ask(items);
+          const canaries = pickCanaries(text);
+          const order = withCanaries(items, canaries);
+          const asked = await ask(order);
+          canaryLog.calls++;
+          const labelFor = new Map(order.map((item, i) => [item, asked.labels[i]]));
+          // A canary called safe: throw the whole answer's restores away.
+          const tripped = canaries.some((c) => RESTORABLE.has(labelFor.get(c) ?? ''));
+          if (tripped) canaryLog.fired++;
+          const first = { labels: items.map((item) => labelFor.get(item) ?? 'UNSURE'), missed: asked.missed };
           items.forEach((item, i) => {
             labelLog.push([item, first.labels[i]]);
             labelOf.set(item, first.labels[i]);
-            restoreVotes.set(item, RESTORABLE.has(first.labels[i]));
+            restoreVotes.set(item, !tripped && RESTORABLE.has(first.labels[i]));
           });
           for (const value of first.missed) {
             const entity = fromMissed(value);

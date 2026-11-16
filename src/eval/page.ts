@@ -3,7 +3,7 @@ import { applyUnhide, hideFirst } from '../hidefirst';
 import { loadWordLists } from '../wordlists';
 import { on } from '../flags';
 import { initFirebase } from '../firebase';
-import { createModels, labelLog, onDeviceCalls, type Models } from '../models';
+import { canaryLog, createModels, labelLog, onDeviceCalls, type Models } from '../models';
 import { FIXTURES as MAIN_SET, type Fixture } from './fixtures';
 import { HOLDOUT } from './holdout';
 import { HOLDOUT2 } from './holdout2';
@@ -29,6 +29,8 @@ export interface EvalReport {
   firebaseConfigured: boolean;
   onDevice: 'ready' | 'unavailable';
   onDeviceError?: string;
+  /** Un-hide calls made, and how many were discarded because a canary came back restorable or the reply was malformed. */
+  canaries?: { calls: number; fired: number; malformed: number };
   /** Items whose label changed with the line they were shown on. Diagnostic plans only. */
   labelDiffs?: unknown;
   summary: Summary;
@@ -65,6 +67,7 @@ const LAZY: Record<string, () => Promise<Fixture[]>> = {
   'stress-upper': async () => (await import('./stress')).STRESS_UPPER,
   'stress-instructions': async () => (await import('./stress')).STRESS_INSTRUCTIONS,
   'stress-messy': async () => (await import('./stress')).STRESS_MESSY,
+  'stress-instructions-wide': async () => (await import('./stress')).STRESS_INSTRUCTIONS_WIDE,
   'outside-dev': async () => (await fetch('/outside-data/outside-dev.json')).json() as Promise<Fixture[]>,
   'outside-final': async () => (await fetch('/outside-data/outside-final.json')).json() as Promise<Fixture[]>,
 };
@@ -162,7 +165,8 @@ async function run(): Promise<void> {
 
   const docs: DocScore[] = [];
   const FIXTURES = await loadFixtures();
-  if (on('names') || on('nameslc') || on('lc')) await loadWordLists();
+  // The no-restore rule uses the name list, so hide-first always loads it.
+  if ((models?.arm ?? 'a0') !== 'a0' || on('names') || on('nameslc') || on('lc')) await loadWordLists();
   for (const [i, fixture] of FIXTURES.entries()) {
     progress.textContent = `Letter ${i + 1} of ${FIXTURES.length}: ${fixture.title}`;
     let raw = 0;
@@ -213,6 +217,7 @@ async function run(): Promise<void> {
     firebaseConfigured: models !== null,
     onDevice,
     onDeviceError,
+    canaries: { ...canaryLog },
     labelDiffs: (window as { __airlockLabelDiffs?: unknown }).__airlockLabelDiffs,
     summary,
     verdict: verdict(summary),

@@ -29,6 +29,50 @@ export interface HideFirst {
   marks: string[];
 }
 
+// Words that introduce a person. A marked item that contains one of these
+// before a capitalised word, or stands straight after one, is a name.
+const ROLE = 'Dr|Mr|Mrs|Ms|Miss|Mx|Prof|Professor|Nurse|Sister|Matron|Midwife|Judge|Officer|Cllr|Councillor|Signed|Seen by|Cc';
+const ROLE_INSIDE = new RegExp(`(?:^|\\s)(?:${ROLE})\\.?\\s+\\p{Lu}`, 'iu');
+const ROLE_BEFORE = new RegExp(`(?<![\\p{L}])(?:${ROLE})\\.?:?,?[ \\t]+$`, 'iu');
+// A name in front of one of these is a condition, a test or a piece of kit
+// named after someone ("Parkinson's disease", "Holter monitor"), not a person.
+const EPONYM_TAIL =
+  /^(?:['’]s?)?[ \t]+(?:disease|syndrome|sign|score|scale|test|scan|monitor|catheter|solution|manoeuvre|maneuver|valve|palsy|lymphoma|phenomenon|thyroiditis|fracture|classification|criteria|method|procedure|operation|reflex|tube|ulcer|sarcoma|tumou?r|virus|stain|law|chart)\b/i;
+
+/**
+ * True when the model must not be allowed to show a marked item again,
+ * whatever it says about it. In any letter case:
+ *  - it holds a word from the name list (unless every use is an eponym);
+ *  - it stands next to a name that is already hidden;
+ *  - it contains, or stands straight after, a title or role word.
+ * A line of text inside a document can talk a small model into calling a
+ * person an organisation or a medical term. These rules do not depend on it.
+ */
+export function neverRestore(masked: string, item: string): boolean {
+  if (ROLE_INSIDE.test(item)) return true;
+  let listed = false;
+  if (wordListsLoaded()) {
+    for (const word of item.split(/[^\p{L}]+/u)) {
+      if (word.length >= 3 && isListedName(word) && !isCommonWord(word)) listed = true;
+    }
+  }
+  let uses = 0;
+  let eponyms = 0;
+  let at = 0;
+  for (;;) {
+    at = masked.indexOf(item, at);
+    if (at < 0) break;
+    uses++;
+    const before = masked.slice(Math.max(0, at - 24), at);
+    const after = masked.slice(at + item.length, at + item.length + 24);
+    if (/\[PERSON_\d+\][ \t]$/.test(before) || /^[ \t]\[PERSON_\d+\]/.test(after)) return true;
+    if (ROLE_BEFORE.test(before)) return true;
+    if (EPONYM_TAIL.test(after)) eponyms++;
+    at += item.length;
+  }
+  return listed && !(uses > 0 && eponyms === uses);
+}
+
 export function hideFirst(text: string, safeRules: boolean): HideFirst {
   const regex = detectWithRegex(text);
   const known = [...regex, ...expandNameParts(regex)];
@@ -37,6 +81,7 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
 
   const seen = new Set<string>();
   const marked: Entity[] = [];
+  const protectedMarks: Entity[] = [];
   for (const s of findSuspects(masked)) {
     const key = s.text.toLowerCase();
     if (seen.has(key)) continue;
@@ -44,13 +89,18 @@ export function hideFirst(text: string, safeRules: boolean): HideFirst {
     // Safe rules: an organisation word in the name, a word that is also
     // written in lower case, a word followed by a dose.
     if (safeRules && s.reason === 'name' && (ORG_WORD.test(s.text) || notAName(masked, s.text))) continue;
+    if (s.reason === 'name' && neverRestore(masked, s.text)) {
+      // Hidden for good: source 'list' is never handed to the model.
+      protectedMarks.push({ kind: 'PERSON', value: s.text, source: 'list' });
+      continue;
+    }
     marked.push({ kind: s.reason === 'number' ? 'ID_NUMBER' : 'OTHER', value: s.text, source: 'mark' });
   }
   // Name list: a word that is a known given name or surname. The capital-letter
   // rule above already marks a capitalised one; what the list adds is a name
   // typed without a capital. A list hit is hidden and stays hidden: the model
   // may restore marks, never these.
-  const listed: Entity[] = [];
+  const listed: Entity[] = [...protectedMarks];
   if (wordListsLoaded() && (on('names') || on('nameslc') || on('lc'))) {
     const blank = masked.replace(/\[[A-Z]+(?:_[A-Z]+)*_\d+\]/g, (m) => ' '.repeat(m.length));
     const chatLike = (blank.match(/^[ \t]*[\p{L}][\p{L}'’ -]{1,24}:(?=\s)/gmu) ?? []).length >= 4;
