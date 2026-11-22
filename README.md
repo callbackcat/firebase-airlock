@@ -18,7 +18,7 @@ It is a web app for Chrome, built on
 inference, and an entry for the #BuildHybridAI 2026 hackathon. It is a proof of
 concept, measured carefully. Read the limits before relying on it.
 
-![The Airlock screen: your text on the left, what the cloud receives on the right](docs/screenshots/03-model-finished-light-1440.png)
+![Step 2 of the Airlock screen: the text the cloud model will receive, with hidden details shown as boxes](docs/screenshots/03-model-finished-light-1440.png)
 
 ## How it works
 
@@ -28,8 +28,8 @@ concept, measured carefully. Read the limits before relying on it.
 2. **The on-device model puts useful words back.** Gemini Nano in Chrome, called
    through Firebase AI Logic in `ONLY_ON_DEVICE` mode, may only un-hide items it
    labels as medical or ordinary words. It cannot fall back to the cloud.
-3. **You check.** The right-hand pane is the exact outgoing text. Click any word
-   to hide or show it.
+3. **You check.** Step 2 of the screen shows the exact outgoing text. Click any
+   word to hide or show it.
 4. **The cloud model answers** from placeholders such as `[PERSON_1]`. A leak
    check refuses to send if a hidden value is still readable.
 5. **Real values are restored on your device** from a vault kept in this tab's

@@ -116,7 +116,8 @@ try {
 
     await open('?demo=cloud-error', theme);
     await page.click(tid('load-sample'));
-    await settled();
+    // The text is safe to send before the on-device model finishes, so no wait for it here.
+    await page.waitForSelector(tid('continue'));
     await page.click(tid('continue'));
     await page.waitForSelector(tid('ask-explain'));
     await page.click(tid('ask-explain'));

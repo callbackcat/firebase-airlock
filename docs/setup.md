@@ -95,9 +95,10 @@ The first lines `npm run eval` prints tell you where you stand:
 npm run dev
 ```
 
-Open the address it prints. Load the sample letter: the right-hand pane shows
-what would be sent, and the line under it says when the text became safe and
-when the on-device model finished. The first use may download the model.
+Open the address it prints and choose "Try a sample letter". The next step
+shows what would be sent, and the line under the text says when it became
+safe and when the on-device model finished. The first use may download the
+model.
 
 ## What I have not verified
 
