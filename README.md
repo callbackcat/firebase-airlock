@@ -18,6 +18,9 @@ It is a web app for Chrome, built on
 inference, and an entry for the #BuildHybridAI 2026 hackathon. It is a proof of
 concept, measured carefully. Read the limits before relying on it.
 
+**Try it:** [firebase-airlock.vercel.app](https://firebase-airlock.vercel.app), in
+desktop Chrome with the on-device model. No sign-in.
+
 ![Step 2 of the Airlock screen: the text the cloud model will receive, with hidden details shown as boxes](docs/screenshots/03-model-finished-light-1440.png)
 
 ## How it works

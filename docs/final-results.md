@@ -278,5 +278,4 @@ beside it.
 | `related-work.md`, `firebase-sdk-feedback.md` | Drafts, not posted |
 | `archive/round-3-table.md` | Raw result rows |
 
-Code is on branch `round-2`, not merged, not pushed. The repository is still
-private.
+The code is on `main` and the repository is public.
